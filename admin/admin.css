@@ -156,8 +156,7 @@ input, textarea, select { font-family: var(--fonte); }
    ============================================ */
 
 .admin-layout {
-  display: grid;
-  grid-template-columns: 220px 1fr;
+  display: block;
   min-height: 100vh;
 }
 
@@ -169,7 +168,7 @@ input, textarea, select { font-family: var(--fonte); }
   flex-direction: column;
   position: fixed;
   left: 0; top: 0; bottom: 0;
-  width: 220px;
+  width: 240px;
   z-index: 100;
   overflow-y: auto;
 }
@@ -273,7 +272,7 @@ input, textarea, select { font-family: var(--fonte); }
 
 /* Conteúdo principal admin */
 .admin-conteudo {
-  margin-left: 220px;
+  margin-left: 240px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -283,6 +282,7 @@ input, textarea, select { font-family: var(--fonte); }
   background: var(--branco);
   border-bottom: 1px solid var(--borda);
   padding: 14px 28px;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -304,6 +304,8 @@ input, textarea, select { font-family: var(--fonte); }
 .admin-main {
   padding: 28px;
   flex: 1;
+  overflow-x: hidden;
+  min-width: 0;
 }
 
 /* ============================================
@@ -458,6 +460,8 @@ input, textarea, select { font-family: var(--fonte); }
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  width: 100%;
+  min-width: 0;
 }
 
 .form-grelha--completo {
@@ -817,4 +821,75 @@ input, textarea, select { font-family: var(--fonte); }
   .admin-conteudo { margin-left: 0; }
   .stats-grelha { grid-template-columns: repeat(2, 1fr); }
   .form-grelha { grid-template-columns: 1fr; }
+}
+
+/* ============================================
+   CORREÇÕES DE LAYOUT — overflow e contenção
+   ============================================ */
+
+/* Garantir que o conteúdo nunca sai do container */
+.admin-conteudo {
+  width: calc(100% - 240px);
+  box-sizing: border-box;
+}
+
+.admin-topbar {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.admin-main > * {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Formulário — todos os campos a 100% */
+.form-noticia,
+.form-grelha,
+.painel-card {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-grupo input,
+.form-grupo textarea,
+.form-grupo select {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Editor de conteúdo */
+#editor-conteudo {
+  width: 100%;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Toolbar editor */
+.editor-toolbar {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Tabela responsiva */
+.tabela-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.tabela-noticias {
+  min-width: 600px;
+}
+
+/* Secção categorias */
+#secao-categorias > div {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1100px) {
+  #secao-categorias > div {
+    grid-template-columns: 1fr !important;
+  }
 }

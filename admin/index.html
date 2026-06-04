@@ -49,7 +49,7 @@
   <!-- ============================
        PAINEL ADMIN
        ============================ -->
-  <div class="admin-layout" id="admin-wrapper" style="display:none;">
+  <div class="admin-layout" id="admin-wrapper" style="display:none;width:100%;overflow-x:hidden;">
 
     <!-- Sidebar -->
     <aside class="admin-sidebar" id="admin-sidebar">
@@ -136,7 +136,7 @@
               <span class="painel-card__titulo">Últimas notícias publicadas</span>
               <button class="btn btn--secundario btn--pequeno" onclick="Admin.mostrarSecao('noticias')">Ver todas</button>
             </div>
-            <table class="tabela-noticias">
+            <div class="tabela-wrapper"><table class="tabela-noticias">
               <thead>
                 <tr>
                   <th>Título</th>
@@ -149,7 +149,7 @@
               <tbody id="ultimas-noticias">
                 <tr><td colspan="5" class="sem-noticias">A carregar…</td></tr>
               </tbody>
-            </table>
+            </table></div>
           </div>
 
         </div>
@@ -171,7 +171,7 @@
             <div class="painel-card__header">
               <span class="painel-card__titulo">Todas as notícias</span>
             </div>
-            <table class="tabela-noticias">
+            <div class="tabela-wrapper"><table class="tabela-noticias">
               <thead>
                 <tr>
                   <th>Título</th>
@@ -185,7 +185,7 @@
               <tbody id="lista-noticias-body">
                 <tr><td colspan="6" class="sem-noticias">A carregar…</td></tr>
               </tbody>
-            </table>
+            </table></div>
           </div>
 
         </div>
@@ -202,9 +202,9 @@
             <h2 style="font-size:16px;font-weight:600;" id="form-titulo">Nova Notícia</h2>
           </div>
 
-          <div class="painel-card" style="padding:24px;">
+          <div class="painel-card" style="padding:24px;width:100%;min-width:0;box-sizing:border-box;">
 
-            <div class="form-grelha" style="gap:20px;">
+            <div class="form-grelha" style="gap:20px;width:100%;min-width:0;">
 
               <!-- Título -->
               <div class="form-grupo form-grelha--completo">
