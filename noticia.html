@@ -1,182 +1,24 @@
-<!DOCTYPE html>
-<html lang="pt-PT" data-tema="claro">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Notícia — Encarnado</title>
-  <meta name="description" content="">
-  <meta name="robots" content="index, follow">
-  <meta name="theme-color" content="#c8102e">
-
-  <!-- Open Graph (atualizado via JS) -->
-  <meta property="og:type" content="article">
-  <meta property="og:title" content="">
-  <meta property="og:description" content="">
-  <meta property="og:image" content="">
-  <meta property="og:site_name" content="Encarnado">
-
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="">
-  <meta name="twitter:description" content="">
-
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23c8102e'/><text x='16' y='22' text-anchor='middle' font-size='18' font-family='Georgia' font-weight='bold' fill='white'>E</text></svg>">
-
-  <link rel="stylesheet" href="css/style.css">
-</head>
-<body>
-
-  <!-- HEADER (igual ao index) -->
-  <header class="site-header" role="banner">
-
-    <div class="header-topo">
-      <div class="container">
-        <div class="header-topo__inner">
-          <span class="header-topo__data" id="header-data"></span>
-          <nav class="header-topo__links">
-            <a href="admin/index.html">Administração</a>
-            <a href="favoritos.html">Favoritos</a>
-          </nav>
-        </div>
-      </div>
-    </div>
-
-    <div class="header-principal">
-      <div class="container">
-        <div class="header-principal__inner">
-          <div>
-            <form class="pesquisa-form" id="pesquisa-form" role="search" onsubmit="return false;">
-              <input type="search" id="input-pesquisa" placeholder="Pesquisar…" autocomplete="off" aria-label="Pesquisar">
-              <button type="button" aria-label="Pesquisar">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-              </button>
-            </form>
-          </div>
-
-          <a href="index.html" class="logo" aria-label="Encarnado — Página inicial">
-            <div class="logo__icone">
-              <svg viewBox="0 0 24 24" fill="white">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
-              </svg>
-            </div>
-            <div class="logo__texto">
-              <span class="logo__nome">Encarnado</span>
-              <span class="logo__slogan">O pulso do Benfica</span>
-            </div>
-          </a>
-
-          <div class="header-controles">
-            <button class="btn-favoritos" onclick="window.location.href='favoritos.html'" aria-label="Favoritos">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-              </svg>
-              Favoritos<span id="favoritos-contador"></span>
-            </button>
-            <button class="btn-tema" id="btn-tema" onclick="alternarTema()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-              </svg>
-              Escuro
-            </button>
-            <button class="btn-menu-mobile" id="btn-menu-mobile" aria-expanded="false" aria-label="Menu">
-              <span></span><span></span><span></span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <nav class="nav-principal" id="nav-principal" aria-label="Navegação principal">
-      <div class="container">
-        <ul class="nav-principal__lista">
-          <li><a href="index.html" class="nav-principal__link">Início</a></li>
-          <li><a href="index.html?categoria=Futebol" class="nav-principal__link">Futebol</a></li>
-          <li><a href="index.html?categoria=Modalidades" class="nav-principal__link">Modalidades</a></li>
-          <li><a href="index.html?categoria=Mercado" class="nav-principal__link">Mercado</a></li>
-          <li><a href="index.html?categoria=Formação" class="nav-principal__link">Formação</a></li>
-          <li><a href="index.html?categoria=Opinião" class="nav-principal__link">Opinião</a></li>
-        </ul>
-      </div>
-    </nav>
-
-    <div class="pesquisa-resultados" id="pesquisa-resultados"></div>
-  </header>
-
-  <!-- CONTEÚDO DA NOTÍCIA -->
-  <main class="conteudo-principal" id="main" role="main">
-    <div class="container">
-
-      <div id="conteudo-noticia">
-        <!-- Carregado via JS -->
-        <div class="pagina-noticia">
-          <div class="skeleton" style="height:28px;width:200px;margin-bottom:24px;"></div>
-          <div class="skeleton" style="height:48px;margin-bottom:12px;"></div>
-          <div class="skeleton" style="height:24px;width:70%;margin-bottom:24px;"></div>
-          <div class="skeleton" style="aspect-ratio:16/9;margin-bottom:32px;"></div>
-          <div class="skeleton" style="height:16px;margin-bottom:10px;"></div>
-          <div class="skeleton" style="height:16px;margin-bottom:10px;"></div>
-          <div class="skeleton" style="height:16px;width:80%;margin-bottom:10px;"></div>
-        </div>
-      </div>
-
-      <!-- Notícias relacionadas -->
-      <div id="noticias-relacionadas"></div>
-
-    </div>
-  </main>
-
-  <!-- FOOTER -->
-  <footer class="site-footer" role="contentinfo">
-    <div class="container">
-      <div class="footer-grelha">
-        <div class="footer-sobre">
-          <div class="footer-sobre__logo">
-            <a href="index.html" class="logo">
-              <div class="logo__icone">
-                <svg viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
-              </div>
-              <div class="logo__texto">
-                <span class="logo__nome">Encarnado</span>
-                <span class="logo__slogan" style="color:rgba(255,255,255,.4)">O pulso do Benfica</span>
-              </div>
-            </a>
-          </div>
-          <p>Portal independente de notícias dedicado exclusivamente ao Sport Lisboa e Benfica.</p>
-        </div>
-        <div>
-          <h3 class="footer-col__titulo">Secções</h3>
-          <ul class="footer-col__lista">
-            <li><a href="index.html?categoria=Futebol">Futebol</a></li>
-            <li><a href="index.html?categoria=Modalidades">Modalidades</a></li>
-            <li><a href="index.html?categoria=Mercado">Mercado</a></li>
-            <li><a href="index.html?categoria=Formação">Formação</a></li>
-            <li><a href="index.html?categoria=Opinião">Opinião</a></li>
-          </ul>
-        </div>
-        <div>
-          <h3 class="footer-col__titulo">Arquivo</h3>
-          <ul class="footer-col__lista">
-            <li><a href="#">2025</a></li>
-            <li><a href="#">2024</a></li>
-          </ul>
-        </div>
-        <div>
-          <h3 class="footer-col__titulo">Site</h3>
-          <ul class="footer-col__lista">
-            <li><a href="favoritos.html">Os meus favoritos</a></li>
-            <li><a href="admin/index.html">Administração</a></li>
-          </ul>
-        </div>
-      </div>
-      <div class="footer-bottom">
-        <span class="footer-bottom__copy">© 2025 Encarnado. Todos os direitos reservados.</span>
-        <span class="footer-bottom__aviso">Site não oficial. Conteúdo inserido manualmente.</span>
-      </div>
-    </div>
-  </footer>
-
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="js/main.js"></script>
-</body>
-</html>
+{
+  "noticias": [
+    {
+      "id": "1",
+      "titulo": "Bem-vindo ao Portal de Notícias do Sport Lisboa e Benfica",
+      "subtitulo": "O seu portal dedicado ao clube mais titulado de Portugal",
+      "autor": "Administrador",
+      "data": "2025-06-04",
+      "categoria": "Futebol",
+      "imagem": "assets/images/placeholder.jpg",
+      "conteudo": "<p>Bem-vindo ao novo portal de notícias dedicado exclusivamente ao Sport Lisboa e Benfica. Aqui encontrará todas as novidades sobre o clube da Luz.</p><p>As notícias serão inseridas manualmente pela equipa de administração, garantindo rigor e qualidade editorial em cada publicação.</p>",
+      "destaque": true,
+      "galeria": [],
+      "tags": ["Benfica", "Apresentação"],
+      "leituras": 0
+    }
+  ],
+  "categorias": ["Futebol", "Modalidades", "Mercado", "Formação", "Opinião"],
+  "config": {
+    "siteName": "Encarnado",
+    "slogan": "O pulso do Benfica",
+    "ultimaAtualizacao": "2025-06-04"
+  }
+}

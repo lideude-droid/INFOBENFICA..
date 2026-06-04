@@ -1,34 +1,72 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>https://seusite.pt/index.html</loc>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>https://seusite.pt/index.html?categoria=Futebol</loc>
-    <changefreq>daily</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://seusite.pt/index.html?categoria=Modalidades</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://seusite.pt/index.html?categoria=Mercado</loc>
-    <changefreq>daily</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://seusite.pt/index.html?categoria=Formação</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  <url>
-    <loc>https://seusite.pt/index.html?categoria=Opinião</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  <!-- As notícias individuais devem ser adicionadas dinamicamente pelo administrador -->
-</urlset>
+<!DOCTYPE html>
+<html lang="pt-PT" data-tema="claro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Página não encontrada — Encarnado</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23c8102e'/><text x='16' y='22' text-anchor='middle' font-size='18' font-family='Georgia' font-weight='bold' fill='white'>E</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="site-header" role="banner">
+    <div class="header-topo">
+      <div class="container">
+        <div class="header-topo__inner">
+          <span class="header-topo__data" id="header-data"></span>
+          <nav class="header-topo__links"><a href="admin/index.html">Administração</a></nav>
+        </div>
+      </div>
+    </div>
+    <div class="header-principal">
+      <div class="container">
+        <div class="header-principal__inner">
+          <div></div>
+          <a href="index.html" class="logo">
+            <div class="logo__icone"><svg viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg></div>
+            <div class="logo__texto"><span class="logo__nome">Encarnado</span><span class="logo__slogan">O pulso do Benfica</span></div>
+          </a>
+          <div class="header-controles">
+            <button class="btn-tema" id="btn-tema" onclick="alternarTema()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg> Escuro
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <nav class="nav-principal" id="nav-principal">
+      <div class="container">
+        <ul class="nav-principal__lista">
+          <li><a href="index.html" class="nav-principal__link">Início</a></li>
+          <li><a href="index.html?categoria=Futebol" class="nav-principal__link">Futebol</a></li>
+          <li><a href="index.html?categoria=Modalidades" class="nav-principal__link">Modalidades</a></li>
+          <li><a href="index.html?categoria=Mercado" class="nav-principal__link">Mercado</a></li>
+          <li><a href="index.html?categoria=Formação" class="nav-principal__link">Formação</a></li>
+          <li><a href="index.html?categoria=Opinião" class="nav-principal__link">Opinião</a></li>
+        </ul>
+      </div>
+    </nav>
+  </header>
+
+  <main class="conteudo-principal" role="main">
+    <div class="container">
+      <div class="pagina-404">
+        <div class="pagina-404__codigo">404</div>
+        <h1 class="pagina-404__titulo">Página não encontrada</h1>
+        <p class="pagina-404__texto">A página que procura não existe ou foi removida.<br>Regressar ao início e encontrar as últimas notícias do Benfica.</p>
+        <a href="index.html" class="btn-voltar">← Voltar ao início</a>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-bottom" style="border-top:none;padding-top:32px;">
+        <span class="footer-bottom__copy">© 2025 Encarnado.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
