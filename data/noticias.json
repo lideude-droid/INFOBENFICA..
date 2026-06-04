@@ -1,0 +1,24 @@
+{
+  "noticias": [
+    {
+      "id": "1",
+      "titulo": "Bem-vindo ao Portal de Notícias do Sport Lisboa e Benfica",
+      "subtitulo": "O seu portal dedicado ao clube mais titulado de Portugal",
+      "autor": "Administrador",
+      "data": "2025-06-04",
+      "categoria": "Futebol",
+      "imagem": "assets/images/placeholder.jpg",
+      "conteudo": "<p>Bem-vindo ao novo portal de notícias dedicado exclusivamente ao Sport Lisboa e Benfica. Aqui encontrará todas as novidades sobre o clube da Luz.</p><p>As notícias serão inseridas manualmente pela equipa de administração, garantindo rigor e qualidade editorial em cada publicação.</p>",
+      "destaque": true,
+      "galeria": [],
+      "tags": ["Benfica", "Apresentação"],
+      "leituras": 0
+    }
+  ],
+  "categorias": ["Futebol", "Modalidades", "Mercado", "Formação", "Opinião"],
+  "config": {
+    "siteName": "Encarnado",
+    "slogan": "O pulso do Benfica",
+    "ultimaAtualizacao": "2025-06-04"
+  }
+}
