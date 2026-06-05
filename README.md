@@ -1,141 +1,182 @@
 # Encarnado — Portal de Notícias do Benfica
+### Backend Flask + Base de dados SQLite
 
-Portal de notícias profissional dedicado exclusivamente ao Sport Lisboa e Benfica.
-Todo o conteúdo é inserido e gerido manualmente pelo administrador.
+Portal de notícias profissional com backend real. Todas as notícias são guardadas
+numa base de dados SQLite e são **iguais para todos os utilizadores** que acederem
+ao site, em qualquer dispositivo ou browser.
 
 ---
 
-## Estrutura de ficheiros
+## Estrutura do projeto
 
 ```
-/index.html          → Página principal
-/noticia.html        → Página de notícia individual
-/favoritos.html      → Página de favoritos do utilizador
-/404.html            → Página de erro 404
-/sitemap.xml         → Sitemap para SEO
-/robots.txt          → Diretivas para motores de pesquisa
-/css/
-  style.css          → Folha de estilos principal
-/js/
-  main.js            → Lógica do portal público
-/data/
-  noticias.json      → Base de dados de notícias (JSON)
-/assets/
-  images/            → Imagens do site
-  icons/             → Ícones
-/admin/
-  index.html         → Painel de administração
-  admin.css          → Estilos do painel
-  admin.js           → Lógica do painel
-```
-
----
-
-## Acesso ao painel de administração
-
-URL: `/admin/index.html`
-
-Credenciais padrão:
-- **Utilizador:** `admin`
-- **Palavra-passe:** `encarnado2025`
-
-> ⚠️ Altere as credenciais antes de colocar o site em produção.
-> Edite as variáveis `ADMIN_USER` e `ADMIN_PASS` no ficheiro `/admin/admin.js`.
-
----
-
-## Como publicar notícias
-
-1. Aceda ao painel de administração em `/admin/`
-2. Clique em **"Nova Notícia"**
-3. Preencha todos os campos:
-   - **Título** (obrigatório)
-   - **Subtítulo** (resumo breve)
-   - **Autor** (obrigatório)
-   - **Data** (obrigatório)
-   - **Categoria** (selecionar da lista)
-   - **Imagem** (upload ou URL)
-   - **Conteúdo** (editor de texto rico)
-4. Opcionalmente, marque como **"Destaque"** para aparecer em primeiro plano na página inicial
-5. Clique em **"Pré-visualizar"** para ver o resultado antes de publicar
-6. Clique em **"Publicar notícia"** para tornar a notícia pública
-
----
-
-## Sincronização do ficheiro JSON
-
-O painel de administração guarda as notícias no `localStorage` do navegador.
-Para que o site funcione em múltiplos dispositivos ou num servidor real:
-
-1. No painel, clique em **"Exportar JSON"** (barra lateral)
-2. Guarde o ficheiro `noticias.json` descarregado
-3. Copie-o para a pasta `/data/` do servidor
-
----
-
-## Modo escuro
-
-O utilizador pode alternar entre modo claro e escuro clicando no botão "Escuro/Claro" no header.
-A preferência é guardada automaticamente no navegador.
-
----
-
-## Favoritos
-
-Os utilizadores podem guardar notícias nos favoritos clicando no ícone ♡ em cada notícia.
-Os favoritos são guardados localmente no navegador (localStorage).
-
----
-
-## SEO
-
-- Meta tags automáticas em cada página
-- Open Graph para partilha em redes sociais
-- Sitemap em `/sitemap.xml` (atualizar com o domínio real)
-- Robots.txt com bloqueio do `/admin/`
-- Substituir `https://seusite.pt` no sitemap.xml pelo domínio real
-
----
-
-## Personalização
-
-### Alterar credenciais de administrador
-Editar em `/admin/admin.js`:
-```js
-const ADMIN_USER = 'admin';        // ← alterar
-const ADMIN_PASS = 'encarnado2025'; // ← alterar
-```
-
-### Alterar nome/slogan do site
-Editar em `/css/style.css` (variáveis CSS) e diretamente nos ficheiros HTML
-onde aparece `Encarnado` e `O pulso do Benfica`.
-
-### Adicionar categorias
-No painel de administração → **Categorias** → Adicionar nova categoria.
-Ou editar diretamente o array em `/data/noticias.json`:
-```json
-"categorias": ["Futebol", "Modalidades", "Mercado", "Formação", "Opinião"]
+encarnado/
+├── server.py              ← Servidor Flask (API + rotas)
+├── requirements.txt       ← Dependências Python
+├── start.sh               ← Arrancar no Linux/Mac
+├── start.bat              ← Arrancar no Windows
+├── data/
+│   └── encarnado.db       ← Base de dados SQLite (criada automaticamente)
+└── public/
+    ├── index.html         ← Página inicial
+    ├── noticia.html       ← Página de notícia
+    ├── favoritos.html     ← Favoritos
+    ├── admin.html         ← Painel de administração
+    ├── 404.html           ← Página de erro
+    ├── css/
+    │   ├── style.css      ← Estilos do portal
+    │   └── admin.css      ← Estilos do painel
+    ├── js/
+    │   ├── main.js        ← JavaScript do portal
+    │   └── admin.js       ← JavaScript do painel
+    └── assets/
+        └── images/        ← Imagens carregadas via upload
 ```
 
 ---
 
-## Tecnologias utilizadas
+## Instalação e arranque
 
-- HTML5 semântico
-- CSS3 com variáveis nativas (sem frameworks)
-- JavaScript vanilla (sem dependências externas)
-- Google Fonts (Playfair Display, Source Serif 4, DM Sans)
-- Armazenamento: JSON + localStorage
+### Requisitos
+- **Python 3.8+** instalado
+
+### Linux / macOS
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+### Windows
+```
+Fazer duplo clique em start.bat
+```
+
+### Manual
+```bash
+pip install -r requirements.txt
+python server.py
+```
+
+O servidor inicia em `http://localhost:5000`
 
 ---
 
-## Compatibilidade
+## Acesso
 
-Testado e compatível com:
-- Chrome / Edge (últimas versões)
-- Firefox (últimas versões)
-- Safari (iOS e macOS)
-- Dispositivos móveis (responsivo)
+| URL                              | Descrição              |
+|----------------------------------|------------------------|
+| `http://localhost:5000`          | Portal público         |
+| `http://localhost:5000/admin`    | Painel de administração|
+
+**Credenciais padrão:**
+- Utilizador: `admin`
+- Palavra-passe: `encarnado2025`
+
+---
+
+## Alterar credenciais de administrador
+
+No ficheiro `server.py`, altere as linhas:
+```python
+ADMIN_USER = os.environ.get('ADMIN_USER', 'admin')
+ADMIN_PASS = os.environ.get('ADMIN_PASS', 'encarnado2025')
+```
+
+Ou use variáveis de ambiente:
+```bash
+export ADMIN_USER=meuadmin
+export ADMIN_PASS=minhapassword
+python server.py
+```
+
+---
+
+## API REST disponível
+
+| Método | Endpoint                            | Descrição                  |
+|--------|-------------------------------------|----------------------------|
+| GET    | `/api/noticias`                     | Listar notícias             |
+| GET    | `/api/noticias/:id`                 | Obter notícia               |
+| GET    | `/api/noticias/destaque`            | Notícia em destaque         |
+| GET    | `/api/noticias/recentes`            | Notícias recentes           |
+| GET    | `/api/noticias/mais-lidas`          | Mais lidas                  |
+| POST   | `/api/noticias/:id/leitura`         | Registar leitura            |
+| GET    | `/api/categorias`                   | Listar categorias           |
+| POST   | `/api/auth/login`                   | Login admin                 |
+| POST   | `/api/auth/logout`                  | Logout                      |
+| GET    | `/api/auth/verificar`               | Verificar sessão            |
+| GET    | `/api/admin/noticias`               | Listar (admin)              |
+| POST   | `/api/admin/noticias`               | Criar notícia               |
+| PUT    | `/api/admin/noticias/:id`           | Editar notícia              |
+| DELETE | `/api/admin/noticias/:id`           | Apagar notícia              |
+| POST   | `/api/admin/noticias/:id/destaque`  | Toggle destaque             |
+| POST   | `/api/admin/upload`                 | Upload de imagem            |
+| GET    | `/api/admin/categorias`             | Listar categorias (admin)   |
+| POST   | `/api/admin/categorias`             | Criar categoria             |
+| DELETE | `/api/admin/categorias/:nome`       | Apagar categoria            |
+| GET    | `/api/admin/stats`                  | Estatísticas                |
+
+---
+
+## Deploy em produção
+
+### Com Gunicorn (recomendado)
+```bash
+pip install gunicorn
+gunicorn -w 4 -b 0.0.0.0:5000 server:app
+```
+
+### Variáveis de ambiente para produção
+```bash
+export SECRET_KEY=chave_secreta_muito_longa_e_aleatoria
+export ADMIN_USER=admin
+export ADMIN_PASS=password_forte
+export PORT=5000
+export DEBUG=false
+python server.py
+```
+
+### Com Nginx (proxy reverso)
+```nginx
+server {
+    listen 80;
+    server_name seusite.pt;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /assets/images/ {
+        alias /caminho/para/encarnado/public/assets/images/;
+        expires 30d;
+    }
+}
+```
+
+---
+
+## Base de dados
+
+A base de dados SQLite é criada automaticamente em `data/encarnado.db` no primeiro arranque.
+
+**Tabelas:**
+- `noticias` — todas as notícias
+- `categorias` — categorias disponíveis
+- `galeria` — imagens de galeria por notícia
+- `config` — configurações gerais
+
+Para fazer backup, basta copiar o ficheiro `data/encarnado.db`.
+
+---
+
+## Tecnologias
+
+- **Backend:** Python 3 + Flask + SQLite3
+- **Frontend:** HTML5 + CSS3 + JavaScript vanilla
+- **Base de dados:** SQLite (sem instalação adicional)
+- **Tipografia:** Playfair Display, Source Serif 4, DM Sans
 
 ---
 
