@@ -28,8 +28,8 @@ MAX_IMG_MB    = 8
 SECRET_KEY    = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
 # Credenciais de administrador (alterar aqui ou via variáveis de ambiente)
-ADMIN_USER = os.environ.get('ADMIN_USER', 'admin')
-ADMIN_PASS = os.environ.get('ADMIN_PASS', 'encarnado2025')
+ADMIN_USER = os.environ.get('ADMIN_USER', 'infobenfica')
+ADMIN_PASS = os.environ.get('ADMIN_PASS', 'encarnado1232026')
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
