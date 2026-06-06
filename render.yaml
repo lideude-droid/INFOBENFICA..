@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: encarnado
+    runtime: python
+    buildCommand: pip install flask==3.1.0 flask-cors==4.0.1 werkzeug==3.1.3 gunicorn==21.2.0
+    startCommand: gunicorn server:app --bind 0.0.0.0:$PORT --workers 2
+    envVars:
+      - key: DEBUG
+        value: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PASS
+        value: encarnado2025

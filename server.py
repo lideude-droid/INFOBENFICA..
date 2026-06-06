@@ -490,8 +490,14 @@ def admin_stats():
 
 # ─── Arranque ────────────────────────────────────────────────────
 
+# Garantir pastas no arranque (importante para Render/cloud)
+os.makedirs(os.path.join(BASE_DIR, 'data'), exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# Inicializar DB sempre que o módulo é importado (para Gunicorn/Render)
+init_db()
+
 if __name__ == '__main__':
-    init_db()
     porta = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('DEBUG', 'true').lower() == 'true'
     print(f"""
