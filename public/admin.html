@@ -23,6 +23,7 @@
       <p class="login-err" id="l-err">Credenciais incorretas. Tente novamente.</p>
       <button type="submit" class="btn-login">Entrar no painel</button>
     </form>
+    <p class="login-hint">Utilizador: <code>admin</code> · Passe: <code>encarnado2025</code></p>
   </div>
 </div>
 
@@ -216,6 +217,35 @@
                 <button type="button" class="e-btn" onclick="Editor.cmd('removeFormat')" title="Limpar">✕</button>
               </div>
               <div id="f-conteudo" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Conteúdo"></div>
+            </div>
+
+
+            <!-- Galeria múltipla -->
+            <div class="f-group span2">
+              <label>Galeria de imagens<span id="galeria-count" style="color:var(--red);font-weight:700"></span></label>
+
+              <!-- Grid de imagens adicionadas -->
+              <div id="galeria-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;min-height:40px;">
+                <p style="font-size:12px;color:var(--gray-m);padding:8px 0;grid-column:1/-1">Sem imagens na galeria. Adicione abaixo.</p>
+              </div>
+
+              <!-- Zona de upload múltiplo -->
+              <div class="upload-zone" id="galeria-zone" style="padding:18px;margin-bottom:10px;">
+                <div class="u-icon" style="font-size:22px;">🖼️</div>
+                <div class="u-text">Clique ou arraste imagens para a galeria</div>
+                <div class="u-hint">Pode selecionar várias imagens de uma vez</div>
+                <input type="file" id="galeria-input" accept="image/*" multiple style="display:none;">
+              </div>
+
+              <!-- Adicionar por URL -->
+              <div style="display:flex;gap:8px;align-items:center;">
+                <input type="url" id="galeria-url-input" placeholder="Ou cole o URL de uma imagem…"
+                  style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--r);font-size:13px;outline:none;font-family:var(--font);">
+                <button type="button" class="a-btn a-btn-secondary a-btn-sm"
+                  onclick="Galeria.addURL(document.getElementById('galeria-url-input').value)">
+                  Adicionar
+                </button>
+              </div>
             </div>
 
             <!-- Ações -->

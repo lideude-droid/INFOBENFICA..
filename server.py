@@ -31,8 +31,8 @@ MAX_IMG_MB   = 8
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 SECRET_KEY   = os.environ.get('SECRET_KEY', secrets.token_hex(32))
-ADMIN_USER   = os.environ.get('ADMIN_USER', 'infobenfica')
-ADMIN_PASS   = os.environ.get('ADMIN_PASS', 'encarnado1232026')
+ADMIN_USER   = os.environ.get('ADMIN_USER', 'admin')
+ADMIN_PASS   = os.environ.get('ADMIN_PASS', 'encarnado2025')
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -82,7 +82,7 @@ def init_db():
         );
 
         INSERT INTO categorias (nome)
-        VALUES ('Futebol'), ('Modalidades'), ('Mercado'), ('Formacao'), ('Opiniao')
+        VALUES ('Futebol'), ('Modalidades'), ('Mercado'), ('Formação'), ('Opinião')
         ON CONFLICT (nome) DO NOTHING;
     """)
     conn.commit()
@@ -353,6 +353,69 @@ def admin_upload():
     nome = f"{uuid.uuid4().hex}.{ext}"
     f.save(os.path.join(UPLOAD_DIR, nome))
     return jsonify({'url': f"/assets/images/{nome}", 'nome': nome})
+
+
+@app.route('/api/admin/noticias/<nid>/galeria', methods=['POST'])
+@login_required
+def admin_galeria_add(nid):
+    """Adiciona imagem à galeria de uma notícia."""
+    if 'imagem' not in request.files:
+        return jsonify({'erro': 'Nenhum ficheiro'}), 400
+    f = request.files['imagem']
+    if not f.filename or not allowed_file(f.filename):
+        return jsonify({'erro': 'Tipo não permitido'}), 400
+    ext  = f.filename.rsplit('.', 1)[1].lower()
+    nome = f"{uuid.uuid4().hex}.{ext}"
+    f.save(os.path.join(UPLOAD_DIR, nome))
+    url  = f"/assets/images/{nome}"
+    conn = get_db(); cur = conn.cursor()
+    # Verificar ordem máxima
+    cur.execute("SELECT COALESCE(MAX(ordem),0)+1 FROM galeria WHERE noticia_id=%s", [nid])
+    ordem = cur.fetchone()['coalesce']
+    cur.execute("INSERT INTO galeria (noticia_id, imagem, ordem) VALUES (%s,%s,%s)", [nid, url, ordem])
+    conn.commit()
+    cur.execute("SELECT * FROM galeria WHERE noticia_id=%s ORDER BY ordem", [nid])
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return jsonify({'url': url, 'galeria': [dict(r) for r in rows]}), 201
+
+@app.route('/api/admin/noticias/<nid>/galeria', methods=['GET'])
+@login_required
+def admin_galeria_get(nid):
+    """Lista imagens da galeria de uma notícia."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM galeria WHERE noticia_id=%s ORDER BY ordem", [nid])
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/admin/galeria/<int:gid>', methods=['DELETE'])
+@login_required
+def admin_galeria_delete(gid):
+    """Remove imagem da galeria."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM galeria WHERE id=%s", [gid])
+    conn.commit(); cur.close(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/admin/galeria/url', methods=['POST'])
+@login_required
+def admin_galeria_add_url():
+    """Adiciona imagem à galeria via URL."""
+    data = request.get_json() or {}
+    nid  = data.get('noticia_id', '').strip()
+    url  = data.get('url', '').strip()
+    if not nid or not url:
+        return jsonify({'erro': 'noticia_id e url obrigatórios'}), 400
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT COALESCE(MAX(ordem),0)+1 FROM galeria WHERE noticia_id=%s", [nid])
+    ordem = cur.fetchone()['coalesce']
+    cur.execute("INSERT INTO galeria (noticia_id, imagem, ordem) VALUES (%s,%s,%s)", [nid, url, ordem])
+    conn.commit()
+    cur.execute("SELECT * FROM galeria WHERE noticia_id=%s ORDER BY ordem", [nid])
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return jsonify({'galeria': [dict(r) for r in rows]}), 201
 
 @app.route('/api/admin/categorias', methods=['GET'])
 @login_required
