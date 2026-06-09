@@ -31,8 +31,8 @@ MAX_IMG_MB   = 8
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 SECRET_KEY   = os.environ.get('SECRET_KEY', secrets.token_hex(32))
-ADMIN_USER   = os.environ.get('ADMIN_USER', 'admin')
-ADMIN_PASS   = os.environ.get('ADMIN_PASS', 'encarnado2025')
+ADMIN_USER   = os.environ.get('ADMIN_USER', 'infobenfica')
+ADMIN_PASS   = os.environ.get('ADMIN_PASS', 'encarnado1232026')
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
