@@ -1,6 +1,7 @@
 """
 ENCARNADO — Portal de Notícias do Benfica
 server.py — Flask + PostgreSQL (Supabase/RocketAdmin)
+Versão corrigida com múltiplas estratégias de conexão
 """
 
 import os
@@ -8,6 +9,7 @@ import hashlib
 import secrets
 import uuid
 import logging
+import time
 from datetime import datetime
 from functools import wraps
 
@@ -15,6 +17,7 @@ import psycopg2
 import psycopg2.extras
 from flask import Flask, request, jsonify, send_from_directory, session, Response
 from flask_cors import CORS
+from urllib.parse import urlparse
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -37,7 +40,6 @@ MIME_POR_EXT = {
 MAX_IMG_MB   = 8
 
 # Conexão à base de dados PostgreSQL (RocketAdmin/Supabase)
-# Use a sua string de conexão real aqui
 DATABASE_URL = os.environ.get(
     'DATABASE_URL',
     'postgres://hdb_J-pXdeuD:bfNUZhNs0iHHLpUXDaq1gDUNToMD_k2W@hdb-J-pXdeuD.db.rocketadmin.com:5432/hdb_J-pXdeuD'
@@ -58,126 +60,198 @@ ADMIN_PASS_HASH = hashlib.sha256(ADMIN_PASS.encode()).hexdigest()
 
 # ─── Base de dados ────────────────────────────────────────────────────────────
 
+def get_db_connection_params():
+    """Extrai parâmetros de conexão da URL."""
+    parsed = urlparse(DATABASE_URL)
+    return {
+        'dbname': parsed.path[1:],
+        'user': parsed.username,
+        'password': parsed.password,
+        'host': parsed.hostname,
+        'port': parsed.port or 5432,
+    }
+
 def get_db():
-    """Obtém uma conexão com a base de dados com SSL configurado."""
+    """
+    Obtém uma conexão com a base de dados com múltiplas estratégias.
+    """
+    errors = []
+    
+    # Estratégia 1: Conexão direta com SSL (recomendado)
     try:
-        # Configuração SSL para RocketAdmin/Supabase
+        log.info("Tentando conexão com SSL...")
         conn = psycopg2.connect(
             DATABASE_URL,
-            sslmode='require',  # Isto é CRUCIAL para o RocketAdmin
+            sslmode='require',
+            connect_timeout=30,
             cursor_factory=psycopg2.extras.RealDictCursor
         )
+        log.info("Conexão SSL estabelecida com sucesso!")
         return conn
     except Exception as e:
-        log.error(f"Erro ao conectar à base de dados: {e}")
-        raise
+        errors.append(f"SSL: {str(e)}")
+        log.warning(f"Falha na conexão SSL: {e}")
+    
+    # Estratégia 2: Tentar sem SSL (para debug)
+    try:
+        log.info("Tentando conexão sem SSL...")
+        conn = psycopg2.connect(
+            DATABASE_URL,
+            sslmode='disable',
+            connect_timeout=30,
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+        log.info("Conexão sem SSL estabelecida com sucesso!")
+        return conn
+    except Exception as e:
+        errors.append(f"No-SSL: {str(e)}")
+        log.warning(f"Falha na conexão sem SSL: {e}")
+    
+    # Estratégia 3: Conexão com parâmetros explícitos
+    try:
+        log.info("Tentando conexão com parâmetros explícitos...")
+        params = get_db_connection_params()
+        conn = psycopg2.connect(
+            **params,
+            sslmode='require',
+            connect_timeout=30,
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+        log.info("Conexão com parâmetros explícitos estabelecida!")
+        return conn
+    except Exception as e:
+        errors.append(f"Params: {str(e)}")
+        log.warning(f"Falha com parâmetros explícitos: {e}")
+    
+    # Se chegamos aqui, todas as estratégias falharam
+    error_msg = f"Todas as estratégias de conexão falharam: {'; '.join(errors)}"
+    log.error(error_msg)
+    raise Exception(error_msg)
 
 def init_db():
     """Inicializa a base de dados com as tabelas necessárias."""
     log.info("A inicializar base de dados...")
     conn = None
     cur = None
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        
-        # Tabela de notícias - usando categoria como TEXT para simplicidade
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS noticias (
-                id          TEXT PRIMARY KEY,
-                titulo      TEXT NOT NULL,
-                subtitulo   TEXT DEFAULT '',
-                autor       TEXT NOT NULL,
-                data        TEXT NOT NULL,
-                categoria   TEXT NOT NULL,
-                imagem      TEXT DEFAULT '',
-                conteudo    TEXT NOT NULL DEFAULT '',
-                destaque    BOOLEAN DEFAULT FALSE,
-                leituras    INTEGER DEFAULT 0,
-                criado_em   TEXT NOT NULL,
-                editado_em  TEXT NOT NULL
-            );
-        """)
-        
-        # Tabela de categorias
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS categorias (
-                id    SERIAL PRIMARY KEY,
-                nome  TEXT NOT NULL UNIQUE
-            );
-        """)
-        
-        # Tabela de galeria
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS galeria (
-                id         SERIAL PRIMARY KEY,
-                noticia_id TEXT NOT NULL REFERENCES noticias(id) ON DELETE CASCADE,
-                imagem     TEXT NOT NULL,
-                ordem      INTEGER DEFAULT 0
-            );
-        """)
-        
-        # Tabela de imagens (para armazenar imagens como BYTEA)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS imagens (
-                id         TEXT PRIMARY KEY,
-                dados      BYTEA NOT NULL,
-                mime       TEXT NOT NULL,
-                criado_em  TEXT NOT NULL
-            );
-        """)
-        
-        # Inserir categorias padrão
-        categorias_padrao = ['Futebol', 'Modalidades', 'Mercado', 'Formação', 'Opinião']
-        for cat in categorias_padrao:
-            try:
-                cur.execute(
-                    "INSERT INTO categorias (nome) VALUES (%s) ON CONFLICT (nome) DO NOTHING",
-                    [cat]
-                )
-            except Exception as e:
-                log.warning(f"Categoria '{cat}' já existe ou erro: {e}")
-        
-        conn.commit()
-        log.info("Base de dados inicializada com sucesso!")
-        
-    except Exception as e:
-        log.error(f"Erro ao inicializar base de dados: {e}")
-        if conn:
-            conn.rollback()
-        raise
-    finally:
-        if cur:
-            cur.close()
-        if conn:
-            conn.close()
+    
+    for attempt in range(3):
+        try:
+            log.info(f"Tentativa {attempt + 1} de inicializar base de dados...")
+            conn = get_db()
+            cur = conn.cursor()
+            
+            # Tabela de notícias
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS noticias (
+                    id          TEXT PRIMARY KEY,
+                    titulo      TEXT NOT NULL,
+                    subtitulo   TEXT DEFAULT '',
+                    autor       TEXT NOT NULL,
+                    data        TEXT NOT NULL,
+                    categoria   TEXT NOT NULL,
+                    imagem      TEXT DEFAULT '',
+                    conteudo    TEXT NOT NULL DEFAULT '',
+                    destaque    BOOLEAN DEFAULT FALSE,
+                    leituras    INTEGER DEFAULT 0,
+                    criado_em   TEXT NOT NULL,
+                    editado_em  TEXT NOT NULL
+                );
+            """)
+            
+            # Tabela de categorias
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS categorias (
+                    id    SERIAL PRIMARY KEY,
+                    nome  TEXT NOT NULL UNIQUE
+                );
+            """)
+            
+            # Tabela de galeria
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS galeria (
+                    id         SERIAL PRIMARY KEY,
+                    noticia_id TEXT NOT NULL REFERENCES noticias(id) ON DELETE CASCADE,
+                    imagem     TEXT NOT NULL,
+                    ordem      INTEGER DEFAULT 0
+                );
+            """)
+            
+            # Tabela de imagens
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS imagens (
+                    id         TEXT PRIMARY KEY,
+                    dados      BYTEA NOT NULL,
+                    mime       TEXT NOT NULL,
+                    criado_em  TEXT NOT NULL
+                );
+            """)
+            
+            # Inserir categorias padrão usando transação
+            categorias_padrao = ['Futebol', 'Modalidades', 'Mercado', 'Formação', 'Opinião']
+            for cat in categorias_padrao:
+                try:
+                    cur.execute(
+                        "INSERT INTO categorias (nome) VALUES (%s) ON CONFLICT (nome) DO NOTHING",
+                        [cat]
+                    )
+                except Exception as e:
+                    log.warning(f"Erro ao inserir categoria '{cat}': {e}")
+            
+            conn.commit()
+            log.info("Base de dados inicializada com sucesso!")
+            return True
+            
+        except Exception as e:
+            log.error(f"Erro na tentativa {attempt + 1}: {e}")
+            if conn:
+                try:
+                    conn.rollback()
+                except:
+                    pass
+            time.sleep(2)  # Espera 2 segundos antes de tentar novamente
+        finally:
+            if cur:
+                try:
+                    cur.close()
+                except:
+                    pass
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+    
+    log.error("Falha ao inicializar base de dados após 3 tentativas")
+    return False
 
 def allowed_file(f):
-    """Verifica se a extensão do ficheiro é permitida."""
     return '.' in f and f.rsplit('.', 1)[1].lower() in ALLOWED_EXT
 
 def guardar_imagem_na_db(file_storage):
     """Guarda uma imagem na base de dados e retorna o URL público."""
-    try:
-        ext = file_storage.filename.rsplit('.', 1)[1].lower()
-        mime = MIME_POR_EXT.get(ext, file_storage.mimetype or 'application/octet-stream')
-        dados = file_storage.read()
-        iid = uuid.uuid4().hex
-        
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO imagens (id, dados, mime, criado_em) VALUES (%s, %s, %s, %s)",
-            [iid, psycopg2.Binary(dados), mime, datetime.now().isoformat()]
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        
-        return f"/api/imagem/{iid}"
-    except Exception as e:
-        log.error(f"Erro ao guardar imagem: {e}")
-        raise
+    for attempt in range(3):
+        try:
+            ext = file_storage.filename.rsplit('.', 1)[1].lower()
+            mime = MIME_POR_EXT.get(ext, file_storage.mimetype or 'application/octet-stream')
+            dados = file_storage.read()
+            iid = uuid.uuid4().hex
+            
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO imagens (id, dados, mime, criado_em) VALUES (%s, %s, %s, %s)",
+                [iid, psycopg2.Binary(dados), mime, datetime.now().isoformat()]
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+            return f"/api/imagem/{iid}"
+        except Exception as e:
+            log.error(f"Erro ao guardar imagem (tentativa {attempt + 1}): {e}")
+            time.sleep(1)
+    
+    raise Exception("Falha ao guardar imagem após 3 tentativas")
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -222,28 +296,30 @@ def static_assets(path):
 
 @app.route('/api/imagem/<iid>')
 def api_imagem(iid):
-    """Serve uma imagem guardada como bytes na base de dados."""
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT dados, mime FROM imagens WHERE id=%s", [iid])
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-        
-        if not row:
-            return jsonify({'erro': 'Imagem não encontrada'}), 404
-        
-        dados = row['dados']
-        if isinstance(dados, memoryview):
-            dados = dados.tobytes()
-        
-        resp = Response(bytes(dados), mimetype=row['mime'])
-        resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-        return resp
-    except Exception as e:
-        log.error(f"Erro ao servir imagem: {e}")
-        return jsonify({'erro': 'Erro ao servir imagem'}), 500
+    for attempt in range(3):
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("SELECT dados, mime FROM imagens WHERE id=%s", [iid])
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            
+            if not row:
+                return jsonify({'erro': 'Imagem não encontrada'}), 404
+            
+            dados = row['dados']
+            if isinstance(dados, memoryview):
+                dados = dados.tobytes()
+            
+            resp = Response(bytes(dados), mimetype=row['mime'])
+            resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+            return resp
+        except Exception as e:
+            log.error(f"Erro ao servir imagem (tentativa {attempt + 1}): {e}")
+            time.sleep(1)
+    
+    return jsonify({'erro': 'Erro ao servir imagem'}), 500
 
 # ─── API Auth ─────────────────────────────────────────────────────────────────
 
@@ -276,185 +352,204 @@ def api_verificar():
 
 @app.route('/api/noticias')
 def api_noticias():
-    try:
-        cat = request.args.get('categoria', '').strip()
-        q   = request.args.get('q', '').strip()
-        lim = min(int(request.args.get('limite', 50)), 100)
-        off = int(request.args.get('offset', 0))
-        
-        conn = get_db()
-        cur = conn.cursor()
-        conditions = []
-        params = []
-        
-        if cat:
-            conditions.append("categoria = %s")
-            params.append(cat)
-        if q:
-            conditions.append("(titulo ILIKE %s OR subtitulo ILIKE %s)")
-            params.extend([f'%{q}%', f'%{q}%'])
-        
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        
-        # Query principal com LIMIT e OFFSET
-        query = f"""
-            SELECT * FROM noticias 
-            {where} 
-            ORDER BY destaque DESC, data DESC, criado_em DESC 
-            LIMIT %s OFFSET %s
-        """
-        cur.execute(query, params + [lim, off])
-        rows = cur.fetchall()
-        
-        # Query para contar total
-        count_query = f"SELECT COUNT(*) FROM noticias {where}"
-        cur.execute(count_query, params)
-        total = cur.fetchone()['count']
-        
-        cur.close()
-        conn.close()
-        
-        return jsonify({
-            'noticias': [dict(r) for r in rows],
-            'total': total
-        })
-    except Exception as e:
-        log.error(f"Erro ao listar notícias: {e}")
-        return jsonify({'erro': 'Erro ao carregar notícias'}), 500
+    for attempt in range(3):
+        try:
+            cat = request.args.get('categoria', '').strip()
+            q   = request.args.get('q', '').strip()
+            lim = min(int(request.args.get('limite', 50)), 100)
+            off = int(request.args.get('offset', 0))
+            
+            conn = get_db()
+            cur = conn.cursor()
+            conditions = []
+            params = []
+            
+            if cat:
+                conditions.append("categoria = %s")
+                params.append(cat)
+            if q:
+                conditions.append("(titulo ILIKE %s OR subtitulo ILIKE %s)")
+                params.extend([f'%{q}%', f'%{q}%'])
+            
+            where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+            
+            query = f"""
+                SELECT * FROM noticias 
+                {where} 
+                ORDER BY destaque DESC, data DESC, criado_em DESC 
+                LIMIT %s OFFSET %s
+            """
+            cur.execute(query, params + [lim, off])
+            rows = cur.fetchall()
+            
+            count_query = f"SELECT COUNT(*) FROM noticias {where}"
+            cur.execute(count_query, params)
+            total = cur.fetchone()['count']
+            
+            cur.close()
+            conn.close()
+            
+            return jsonify({
+                'noticias': [dict(r) for r in rows],
+                'total': total
+            })
+        except Exception as e:
+            log.error(f"Erro ao listar notícias (tentativa {attempt + 1}): {e}")
+            time.sleep(1)
+    
+    return jsonify({'noticias': [], 'total': 0}), 500
 
 @app.route('/api/noticias/destaque')
 def api_destaque():
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        
-        # Tenta buscar notícia em destaque
-        cur.execute("SELECT * FROM noticias WHERE destaque=TRUE ORDER BY data DESC LIMIT 1")
-        row = cur.fetchone()
-        
-        # Se não houver destaque, pega a mais recente
-        if not row:
-            cur.execute("SELECT * FROM noticias ORDER BY data DESC, criado_em DESC LIMIT 1")
+    for attempt in range(3):
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            
+            cur.execute("SELECT * FROM noticias WHERE destaque=TRUE ORDER BY data DESC LIMIT 1")
             row = cur.fetchone()
-        
-        cur.close()
-        conn.close()
-        
-        return jsonify(dict(row) if row else {})
-    except Exception as e:
-        log.error(f"Erro ao buscar destaque: {e}")
-        return jsonify({}), 500
+            
+            if not row:
+                cur.execute("SELECT * FROM noticias ORDER BY data DESC, criado_em DESC LIMIT 1")
+                row = cur.fetchone()
+            
+            cur.close()
+            conn.close()
+            
+            return jsonify(dict(row) if row else {})
+        except Exception as e:
+            log.error(f"Erro ao buscar destaque (tentativa {attempt + 1}): {e}")
+            time.sleep(1)
+    
+    return jsonify({}), 500
 
 @app.route('/api/noticias/recentes')
 def api_recentes():
-    try:
-        lim = min(int(request.args.get('limite', 6)), 20)
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT * FROM noticias ORDER BY data DESC, criado_em DESC LIMIT %s",
-            [lim]
-        )
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        return jsonify([dict(r) for r in rows])
-    except Exception as e:
-        log.error(f"Erro ao buscar notícias recentes: {e}")
-        return jsonify([]), 500
+    for attempt in range(3):
+        try:
+            lim = min(int(request.args.get('limite', 6)), 20)
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT * FROM noticias ORDER BY data DESC, criado_em DESC LIMIT %s",
+                [lim]
+            )
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+            return jsonify([dict(r) for r in rows])
+        except Exception as e:
+            log.error(f"Erro ao buscar notícias recentes (tentativa {attempt + 1}): {e}")
+            time.sleep(1)
+    
+    return jsonify([]), 500
 
 @app.route('/api/noticias/mais-lidas')
 def api_mais_lidas():
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT * FROM noticias ORDER BY leituras DESC, data DESC LIMIT 5"
-        )
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        return jsonify([dict(r) for r in rows])
-    except Exception as e:
-        log.error(f"Erro ao buscar notícias mais lidas: {e}")
-        return jsonify([]), 500
+    for attempt in range(3):
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT * FROM noticias ORDER BY leituras DESC, data DESC LIMIT 5"
+            )
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+            return jsonify([dict(r) for r in rows])
+        except Exception as e:
+            log.error(f"Erro ao buscar notícias mais lidas (tentativa {attempt + 1}): {e}")
+            time.sleep(1)
+    
+    return jsonify([]), 500
 
 @app.route('/api/noticias/<nid>')
 def api_noticia(nid):
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        
-        # Busca a notícia
-        cur.execute("SELECT * FROM noticias WHERE id=%s", [nid])
-        row = cur.fetchone()
-        
-        if not row:
+    for attempt in range(3):
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            
+            cur.execute("SELECT * FROM noticias WHERE id=%s", [nid])
+            row = cur.fetchone()
+            
+            if not row:
+                cur.close()
+                conn.close()
+                return jsonify({'erro': 'Não encontrada'}), 404
+            
+            cur.execute(
+                "SELECT imagem FROM galeria WHERE noticia_id=%s ORDER BY ordem",
+                [nid]
+            )
+            galeria = cur.fetchall()
+            
+            cur.execute(
+                """
+                SELECT * FROM noticias 
+                WHERE categoria=%s AND id!=%s 
+                ORDER BY data DESC 
+                LIMIT 3
+                """,
+                [row['categoria'], nid]
+            )
+            relacionadas = cur.fetchall()
+            
             cur.close()
             conn.close()
-            return jsonify({'erro': 'Não encontrada'}), 404
-        
-        # Busca galeria
-        cur.execute(
-            "SELECT imagem FROM galeria WHERE noticia_id=%s ORDER BY ordem",
-            [nid]
-        )
-        galeria = cur.fetchall()
-        
-        # Busca notícias relacionadas (mesma categoria, excluindo a atual)
-        cur.execute(
-            """
-            SELECT * FROM noticias 
-            WHERE categoria=%s AND id!=%s 
-            ORDER BY data DESC 
-            LIMIT 3
-            """,
-            [row['categoria'], nid]
-        )
-        relacionadas = cur.fetchall()
-        
-        cur.close()
-        conn.close()
-        
-        result = dict(row)
-        result['galeria'] = [r['imagem'] for r in galeria]
-        result['relacionadas'] = [dict(r) for r in relacionadas]
-        
-        return jsonify(result)
-    except Exception as e:
-        log.error(f"Erro ao buscar notícia {nid}: {e}")
-        return jsonify({'erro': 'Erro ao carregar notícia'}), 500
+            
+            result = dict(row)
+            result['galeria'] = [r['imagem'] for r in galeria]
+            result['relacionadas'] = [dict(r) for r in relacionadas]
+            
+            return jsonify(result)
+        except Exception as e:
+            log.error(f"Erro ao buscar notícia {nid} (tentativa {attempt + 1}): {e}")
+            time.sleep(1)
+    
+    return jsonify({'erro': 'Erro ao carregar notícia'}), 500
 
 @app.route('/api/noticias/<nid>/leitura', methods=['POST'])
 def api_leitura(nid):
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE noticias SET leituras = leituras + 1 WHERE id=%s",
-            [nid]
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        return jsonify({'ok': True})
-    except Exception as e:
-        log.error(f"Erro ao incrementar leituras: {e}")
-        return jsonify({'erro': 'Erro ao registrar leitura'}), 500
+    for attempt in range(3):
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE noticias SET leituras = leituras + 1 WHERE id=%s",
+                [nid]
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            return jsonify({'ok': True})
+        except Exception as e:
+            log.error(f"Erro ao incrementar leituras (tentativa {attempt + 1}): {e}")
+            time.sleep(1)
+    
+    return jsonify({'erro': 'Erro ao registrar leitura'}), 500
 
 @app.route('/api/categorias')
 def api_categorias():
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT nome FROM categorias ORDER BY nome")
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        return jsonify([r['nome'] for r in rows])
-    except Exception as e:
-        log.error(f"Erro ao buscar categorias: {e}")
-        return jsonify([]), 500
+    for attempt in range(3):
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("SELECT nome FROM categorias ORDER BY nome")
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+            return jsonify([r['nome'] for r in rows])
+        except Exception as e:
+            log.error(f"Erro ao buscar categorias (tentativa {attempt + 1}): {e}")
+            time.sleep(1)
+    
+    return jsonify([]), 500
+
+@app.route('/api/categories')
+def api_categories_legacy():
+    """Endpoint legacy para compatibilidade."""
+    return api_categorias()
 
 # ─── API Admin ────────────────────────────────────────────────────────────────
 
@@ -510,7 +605,6 @@ def admin_criar():
         conn = get_db()
         cur = conn.cursor()
         
-        # Se for destaque, remove destaque de todas as outras
         if data.get('destaque'):
             cur.execute("UPDATE noticias SET destaque=FALSE")
         
@@ -558,7 +652,6 @@ def admin_editar(nid):
         data = request.get_json() or {}
         agora = datetime.now().isoformat()
         
-        # Se for destaque, remove destaque de todas as outras
         if data.get('destaque'):
             cur.execute("UPDATE noticias SET destaque=FALSE WHERE id!=%s", [nid])
         
@@ -665,7 +758,6 @@ def admin_galeria_add(nid):
         conn = get_db()
         cur = conn.cursor()
         
-        # Verificar ordem máxima
         cur.execute(
             "SELECT COALESCE(MAX(ordem),0)+1 FROM galeria WHERE noticia_id=%s",
             [nid]
@@ -814,7 +906,6 @@ def admin_apagar_cat(nome):
         conn = get_db()
         cur = conn.cursor()
         
-        # Verifica se está em uso
         cur.execute("SELECT COUNT(*) FROM noticias WHERE categoria=%s", [nome])
         em_uso = cur.fetchone()['count']
         
@@ -877,23 +968,17 @@ def admin_stats():
         log.error(f"Erro ao buscar stats: {e}")
         return jsonify({'erro': 'Erro ao buscar estatísticas'}), 500
 
-# ─── Inicialização ────────────────────────────────────────────────────────────
+# ─── Health Check ─────────────────────────────────────────────────────────────
 
-if __name__ == '__main__':
-    porta = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('DEBUG', 'true').lower() == 'true'
-    
-    # Inicializa a base de dados
+@app.route('/health')
+def health_check():
+    """Endpoint para verificar o estado da aplicação."""
     try:
-        init_db()
-        log.info("Base de dados inicializada com sucesso!")
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        conn.close()
+        return jsonify({'status': 'ok', 'database': 'connected'})
     except Exception as e:
-        log.error(f"ERRO ao inicializar base de dados: {e}")
-        log.warning("A aplicação pode não funcionar corretamente sem base de dados.")
-    
-    log.info(f"Servidor a iniciar na porta {porta}")
-    log.info(f"Modo debug: {debug}")
-    log.info(f"Admin user: {ADMIN_USER}")
-    log.info(f"Admin pass: {ADMIN_PASS}")
-    
-    app.run(host='0.0.0.0', port=porta, debug=debug)
+        log.error
