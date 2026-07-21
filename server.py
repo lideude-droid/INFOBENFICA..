@@ -1,6 +1,6 @@
 """
 ENCARNADO — Portal de Notícias do Benfica
-server.py — Flask + PostgreSQL (Supabase)
+server.py — Flask + PostgreSQL (Supabase/RocketAdmin)
 """
 
 import os
@@ -36,13 +36,13 @@ MIME_POR_EXT = {
 }
 MAX_IMG_MB   = 8
 
-# Ligacao a base de dados PostgreSQL (RocketAdmin).
-# Pode ser sobreposta definindo a variavel de ambiente DATABASE_URL no servidor
-# (recomendado em producao); caso contrario usa-se a ligacao abaixo por omissao.
+# Conexão à base de dados PostgreSQL (RocketAdmin/Supabase)
+# Use a sua string de conexão real aqui
 DATABASE_URL = os.environ.get(
     'DATABASE_URL',
     'postgres://hdb_J-pXdeuD:bfNUZhNs0iHHLpUXDaq1gDUNToMD_k2W@hdb-J-pXdeuD.db.rocketadmin.com:5432/hdb_J-pXdeuD'
 )
+
 SECRET_KEY   = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 ADMIN_USER   = os.environ.get('ADMIN_USER', 'infobenfica')
 ADMIN_PASS   = os.environ.get('ADMIN_PASS', 'encarnado1232026')
@@ -59,74 +59,125 @@ ADMIN_PASS_HASH = hashlib.sha256(ADMIN_PASS.encode()).hexdigest()
 # ─── Base de dados ────────────────────────────────────────────────────────────
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    return conn
+    """Obtém uma conexão com a base de dados com SSL configurado."""
+    try:
+        # Configuração SSL para RocketAdmin/Supabase
+        conn = psycopg2.connect(
+            DATABASE_URL,
+            sslmode='require',  # Isto é CRUCIAL para o RocketAdmin
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+        return conn
+    except Exception as e:
+        log.error(f"Erro ao conectar à base de dados: {e}")
+        raise
 
 def init_db():
+    """Inicializa a base de dados com as tabelas necessárias."""
     log.info("A inicializar base de dados...")
-    conn = get_db()
-    cur  = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS noticias (
-            id          TEXT PRIMARY KEY,
-            titulo      TEXT NOT NULL,
-            subtitulo   TEXT DEFAULT '',
-            autor       TEXT NOT NULL,
-            data        TEXT NOT NULL,
-            categoria   TEXT NOT NULL,
-            imagem      TEXT DEFAULT '',
-            conteudo    TEXT NOT NULL DEFAULT '',
-            destaque    BOOLEAN DEFAULT FALSE,
-            leituras    INTEGER DEFAULT 0,
-            criado_em   TEXT NOT NULL,
-            editado_em  TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS categorias (
-            id    SERIAL PRIMARY KEY,
-            nome  TEXT NOT NULL UNIQUE
-        );
-
-        CREATE TABLE IF NOT EXISTS galeria (
-            id         SERIAL PRIMARY KEY,
-            noticia_id TEXT NOT NULL REFERENCES noticias(id) ON DELETE CASCADE,
-            imagem     TEXT NOT NULL,
-            ordem      INTEGER DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS imagens (
-            id         TEXT PRIMARY KEY,
-            dados      BYTEA NOT NULL,
-            mime       TEXT NOT NULL,
-            criado_em  TEXT NOT NULL
-        );
-
-        INSERT INTO categorias (nome)
-        VALUES ('Futebol'), ('Modalidades'), ('Mercado'), ('Formação'), ('Opinião')
-        ON CONFLICT (nome) DO NOTHING;
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
-    log.info("Base de dados inicializada com sucesso!")
+    conn = None
+    cur = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        # Tabela de notícias - usando categoria como TEXT para simplicidade
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS noticias (
+                id          TEXT PRIMARY KEY,
+                titulo      TEXT NOT NULL,
+                subtitulo   TEXT DEFAULT '',
+                autor       TEXT NOT NULL,
+                data        TEXT NOT NULL,
+                categoria   TEXT NOT NULL,
+                imagem      TEXT DEFAULT '',
+                conteudo    TEXT NOT NULL DEFAULT '',
+                destaque    BOOLEAN DEFAULT FALSE,
+                leituras    INTEGER DEFAULT 0,
+                criado_em   TEXT NOT NULL,
+                editado_em  TEXT NOT NULL
+            );
+        """)
+        
+        # Tabela de categorias
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS categorias (
+                id    SERIAL PRIMARY KEY,
+                nome  TEXT NOT NULL UNIQUE
+            );
+        """)
+        
+        # Tabela de galeria
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS galeria (
+                id         SERIAL PRIMARY KEY,
+                noticia_id TEXT NOT NULL REFERENCES noticias(id) ON DELETE CASCADE,
+                imagem     TEXT NOT NULL,
+                ordem      INTEGER DEFAULT 0
+            );
+        """)
+        
+        # Tabela de imagens (para armazenar imagens como BYTEA)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS imagens (
+                id         TEXT PRIMARY KEY,
+                dados      BYTEA NOT NULL,
+                mime       TEXT NOT NULL,
+                criado_em  TEXT NOT NULL
+            );
+        """)
+        
+        # Inserir categorias padrão
+        categorias_padrao = ['Futebol', 'Modalidades', 'Mercado', 'Formação', 'Opinião']
+        for cat in categorias_padrao:
+            try:
+                cur.execute(
+                    "INSERT INTO categorias (nome) VALUES (%s) ON CONFLICT (nome) DO NOTHING",
+                    [cat]
+                )
+            except Exception as e:
+                log.warning(f"Categoria '{cat}' já existe ou erro: {e}")
+        
+        conn.commit()
+        log.info("Base de dados inicializada com sucesso!")
+        
+    except Exception as e:
+        log.error(f"Erro ao inicializar base de dados: {e}")
+        if conn:
+            conn.rollback()
+        raise
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def allowed_file(f):
+    """Verifica se a extensão do ficheiro é permitida."""
     return '.' in f and f.rsplit('.', 1)[1].lower() in ALLOWED_EXT
 
 def guardar_imagem_na_db(file_storage):
-    """Lê o ficheiro enviado (PC ou telemóvel) e guarda os bytes na base de dados.
-    Devolve o URL público (/api/imagem/<id>) que serve a imagem diretamente da DB."""
-    ext  = file_storage.filename.rsplit('.', 1)[1].lower()
-    mime = MIME_POR_EXT.get(ext, file_storage.mimetype or 'application/octet-stream')
-    dados = file_storage.read()
-    iid = uuid.uuid4().hex
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO imagens (id, dados, mime, criado_em) VALUES (%s,%s,%s,%s)",
-        [iid, psycopg2.Binary(dados), mime, datetime.now().isoformat()]
-    )
-    conn.commit(); cur.close(); conn.close()
-    return f"/api/imagem/{iid}"
+    """Guarda uma imagem na base de dados e retorna o URL público."""
+    try:
+        ext = file_storage.filename.rsplit('.', 1)[1].lower()
+        mime = MIME_POR_EXT.get(ext, file_storage.mimetype or 'application/octet-stream')
+        dados = file_storage.read()
+        iid = uuid.uuid4().hex
+        
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO imagens (id, dados, mime, criado_em) VALUES (%s, %s, %s, %s)",
+            [iid, psycopg2.Binary(dados), mime, datetime.now().isoformat()]
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return f"/api/imagem/{iid}"
+    except Exception as e:
+        log.error(f"Erro ao guardar imagem: {e}")
+        raise
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -172,30 +223,45 @@ def static_assets(path):
 @app.route('/api/imagem/<iid>')
 def api_imagem(iid):
     """Serve uma imagem guardada como bytes na base de dados."""
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT dados, mime FROM imagens WHERE id=%s", [iid])
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    if not row:
-        return jsonify({'erro': 'Imagem não encontrada'}), 404
-    dados = row['dados']
-    if isinstance(dados, memoryview):
-        dados = dados.tobytes()
-    resp = Response(bytes(dados), mimetype=row['mime'])
-    resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-    return resp
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT dados, mime FROM imagens WHERE id=%s", [iid])
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if not row:
+            return jsonify({'erro': 'Imagem não encontrada'}), 404
+        
+        dados = row['dados']
+        if isinstance(dados, memoryview):
+            dados = dados.tobytes()
+        
+        resp = Response(bytes(dados), mimetype=row['mime'])
+        resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        return resp
+    except Exception as e:
+        log.error(f"Erro ao servir imagem: {e}")
+        return jsonify({'erro': 'Erro ao servir imagem'}), 500
 
 # ─── API Auth ─────────────────────────────────────────────────────────────────
 
 @app.route('/api/auth/login', methods=['POST'])
 def api_login():
-    data = request.get_json() or {}
-    user = data.get('utilizador', '').strip()
-    pw   = data.get('senha', '')
-    if user == ADMIN_USER and hashlib.sha256(pw.encode()).hexdigest() == ADMIN_PASS_HASH:
-        session['admin'] = True
-        return jsonify({'ok': True})
-    return jsonify({'erro': 'Credenciais incorretas'}), 401
+    try:
+        data = request.get_json() or {}
+        user = data.get('utilizador', '').strip()
+        pw   = data.get('senha', '')
+        
+        if user == ADMIN_USER and hashlib.sha256(pw.encode()).hexdigest() == ADMIN_PASS_HASH:
+            session['admin'] = True
+            return jsonify({'ok': True})
+        
+        return jsonify({'erro': 'Credenciais incorretas'}), 401
+    except Exception as e:
+        log.error(f"Erro no login: {e}")
+        return jsonify({'erro': 'Erro interno'}), 500
 
 @app.route('/api/auth/logout', methods=['POST'])
 def api_logout():
@@ -210,332 +276,624 @@ def api_verificar():
 
 @app.route('/api/noticias')
 def api_noticias():
-    cat = request.args.get('categoria', '').strip()
-    q   = request.args.get('q', '').strip()
-    lim = min(int(request.args.get('limite', 50)), 100)
-    off = int(request.args.get('offset', 0))
-
-    conn = get_db(); cur = conn.cursor()
-    conditions = []; params = []
-
-    if cat:
-        conditions.append("categoria = %s")
-        params.append(cat)
-    if q:
-        conditions.append("(titulo ILIKE %s OR subtitulo ILIKE %s)")
-        params += [f'%{q}%', f'%{q}%']
-
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    cur.execute(f"SELECT * FROM noticias {where} ORDER BY destaque DESC, data DESC, criado_em DESC LIMIT %s OFFSET %s", params + [lim, off])
-    rows = cur.fetchall()
-    cur.execute(f"SELECT COUNT(*) FROM noticias {where}", params)
-    total = cur.fetchone()['count']
-    cur.close(); conn.close()
-    return jsonify({'noticias': [dict(r) for r in rows], 'total': total})
+    try:
+        cat = request.args.get('categoria', '').strip()
+        q   = request.args.get('q', '').strip()
+        lim = min(int(request.args.get('limite', 50)), 100)
+        off = int(request.args.get('offset', 0))
+        
+        conn = get_db()
+        cur = conn.cursor()
+        conditions = []
+        params = []
+        
+        if cat:
+            conditions.append("categoria = %s")
+            params.append(cat)
+        if q:
+            conditions.append("(titulo ILIKE %s OR subtitulo ILIKE %s)")
+            params.extend([f'%{q}%', f'%{q}%'])
+        
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        
+        # Query principal com LIMIT e OFFSET
+        query = f"""
+            SELECT * FROM noticias 
+            {where} 
+            ORDER BY destaque DESC, data DESC, criado_em DESC 
+            LIMIT %s OFFSET %s
+        """
+        cur.execute(query, params + [lim, off])
+        rows = cur.fetchall()
+        
+        # Query para contar total
+        count_query = f"SELECT COUNT(*) FROM noticias {where}"
+        cur.execute(count_query, params)
+        total = cur.fetchone()['count']
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'noticias': [dict(r) for r in rows],
+            'total': total
+        })
+    except Exception as e:
+        log.error(f"Erro ao listar notícias: {e}")
+        return jsonify({'erro': 'Erro ao carregar notícias'}), 500
 
 @app.route('/api/noticias/destaque')
 def api_destaque():
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM noticias WHERE destaque=TRUE ORDER BY data DESC LIMIT 1")
-    row = cur.fetchone()
-    if not row:
-        cur.execute("SELECT * FROM noticias ORDER BY data DESC, criado_em DESC LIMIT 1")
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        # Tenta buscar notícia em destaque
+        cur.execute("SELECT * FROM noticias WHERE destaque=TRUE ORDER BY data DESC LIMIT 1")
         row = cur.fetchone()
-    cur.close(); conn.close()
-    return jsonify(dict(row) if row else {})
+        
+        # Se não houver destaque, pega a mais recente
+        if not row:
+            cur.execute("SELECT * FROM noticias ORDER BY data DESC, criado_em DESC LIMIT 1")
+            row = cur.fetchone()
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify(dict(row) if row else {})
+    except Exception as e:
+        log.error(f"Erro ao buscar destaque: {e}")
+        return jsonify({}), 500
 
 @app.route('/api/noticias/recentes')
 def api_recentes():
-    lim = min(int(request.args.get('limite', 6)), 20)
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM noticias ORDER BY data DESC, criado_em DESC LIMIT %s", [lim])
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return jsonify([dict(r) for r in rows])
+    try:
+        lim = min(int(request.args.get('limite', 6)), 20)
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM noticias ORDER BY data DESC, criado_em DESC LIMIT %s",
+            [lim]
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        log.error(f"Erro ao buscar notícias recentes: {e}")
+        return jsonify([]), 500
 
 @app.route('/api/noticias/mais-lidas')
 def api_mais_lidas():
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM noticias ORDER BY leituras DESC, data DESC LIMIT 5")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return jsonify([dict(r) for r in rows])
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM noticias ORDER BY leituras DESC, data DESC LIMIT 5"
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        log.error(f"Erro ao buscar notícias mais lidas: {e}")
+        return jsonify([]), 500
 
 @app.route('/api/noticias/<nid>')
 def api_noticia(nid):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM noticias WHERE id=%s", [nid])
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        return jsonify({'erro': 'Não encontrada'}), 404
-    cur.execute("SELECT imagem FROM galeria WHERE noticia_id=%s ORDER BY ordem", [nid])
-    galeria = cur.fetchall()
-    cur.execute("SELECT * FROM noticias WHERE categoria=%s AND id!=%s ORDER BY data DESC LIMIT 3", [row['categoria'], nid])
-    relacionadas = cur.fetchall()
-    cur.close(); conn.close()
-    result = dict(row)
-    result['galeria']      = [r['imagem'] for r in galeria]
-    result['relacionadas'] = [dict(r) for r in relacionadas]
-    return jsonify(result)
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        # Busca a notícia
+        cur.execute("SELECT * FROM noticias WHERE id=%s", [nid])
+        row = cur.fetchone()
+        
+        if not row:
+            cur.close()
+            conn.close()
+            return jsonify({'erro': 'Não encontrada'}), 404
+        
+        # Busca galeria
+        cur.execute(
+            "SELECT imagem FROM galeria WHERE noticia_id=%s ORDER BY ordem",
+            [nid]
+        )
+        galeria = cur.fetchall()
+        
+        # Busca notícias relacionadas (mesma categoria, excluindo a atual)
+        cur.execute(
+            """
+            SELECT * FROM noticias 
+            WHERE categoria=%s AND id!=%s 
+            ORDER BY data DESC 
+            LIMIT 3
+            """,
+            [row['categoria'], nid]
+        )
+        relacionadas = cur.fetchall()
+        
+        cur.close()
+        conn.close()
+        
+        result = dict(row)
+        result['galeria'] = [r['imagem'] for r in galeria]
+        result['relacionadas'] = [dict(r) for r in relacionadas]
+        
+        return jsonify(result)
+    except Exception as e:
+        log.error(f"Erro ao buscar notícia {nid}: {e}")
+        return jsonify({'erro': 'Erro ao carregar notícia'}), 500
 
 @app.route('/api/noticias/<nid>/leitura', methods=['POST'])
 def api_leitura(nid):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("UPDATE noticias SET leituras = leituras+1 WHERE id=%s", [nid])
-    conn.commit(); cur.close(); conn.close()
-    return jsonify({'ok': True})
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE noticias SET leituras = leituras + 1 WHERE id=%s",
+            [nid]
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        log.error(f"Erro ao incrementar leituras: {e}")
+        return jsonify({'erro': 'Erro ao registrar leitura'}), 500
 
 @app.route('/api/categorias')
 def api_categorias():
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT nome FROM categorias ORDER BY nome")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return jsonify([r['nome'] for r in rows])
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT nome FROM categorias ORDER BY nome")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify([r['nome'] for r in rows])
+    except Exception as e:
+        log.error(f"Erro ao buscar categorias: {e}")
+        return jsonify([]), 500
 
 # ─── API Admin ────────────────────────────────────────────────────────────────
 
 @app.route('/api/admin/noticias', methods=['GET'])
 @login_required
 def admin_listar():
-    q = request.args.get('q', '').strip()
-    cat = request.args.get('categoria', '').strip()
-    conn = get_db(); cur = conn.cursor()
-    conditions = []; params = []
-    if q:
-        conditions.append("(titulo ILIKE %s OR autor ILIKE %s)")
-        params += [f'%{q}%', f'%{q}%']
-    if cat:
-        conditions.append("categoria = %s")
-        params.append(cat)
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    cur.execute(f"SELECT * FROM noticias {where} ORDER BY data DESC, criado_em DESC", params)
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return jsonify([dict(r) for r in rows])
+    try:
+        q = request.args.get('q', '').strip()
+        cat = request.args.get('categoria', '').strip()
+        
+        conn = get_db()
+        cur = conn.cursor()
+        conditions = []
+        params = []
+        
+        if q:
+            conditions.append("(titulo ILIKE %s OR autor ILIKE %s)")
+            params.extend([f'%{q}%', f'%{q}%'])
+        if cat:
+            conditions.append("categoria = %s")
+            params.append(cat)
+        
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        query = f"SELECT * FROM noticias {where} ORDER BY data DESC, criado_em DESC"
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        log.error(f"Erro ao listar notícias admin: {e}")
+        return jsonify({'erro': 'Erro ao carregar notícias'}), 500
 
 @app.route('/api/admin/noticias', methods=['POST'])
 @login_required
 def admin_criar():
-    data = request.get_json() or {}
-    erros = []
-    if not data.get('titulo', '').strip():   erros.append('título')
-    if not data.get('autor', '').strip():    erros.append('autor')
-    if not data.get('data', '').strip():     erros.append('data')
-    if not data.get('conteudo', '').strip(): erros.append('conteúdo')
-    if erros:
-        return jsonify({'erro': f'Campos obrigatórios: {", ".join(erros)}'}), 400
-
-    nid = str(uuid.uuid4())[:8]
-    agora = datetime.now().isoformat()
-    conn = get_db(); cur = conn.cursor()
-    if data.get('destaque'):
-        cur.execute("UPDATE noticias SET destaque=FALSE")
-    cur.execute("""
-        INSERT INTO noticias (id,titulo,subtitulo,autor,data,categoria,imagem,conteudo,destaque,leituras,criado_em,editado_em)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s)
-    """, [nid, data['titulo'].strip(), data.get('subtitulo','').strip(), data['autor'].strip(),
-          data['data'].strip(), data.get('categoria','Futebol').strip(), data.get('imagem','').strip(),
-          data['conteudo'].strip(), bool(data.get('destaque')), agora, agora])
-    conn.commit()
-    cur.execute("SELECT * FROM noticias WHERE id=%s", [nid])
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return jsonify(dict(row)), 201
+    try:
+        data = request.get_json() or {}
+        erros = []
+        
+        if not data.get('titulo', '').strip(): erros.append('título')
+        if not data.get('autor', '').strip(): erros.append('autor')
+        if not data.get('data', '').strip(): erros.append('data')
+        if not data.get('conteudo', '').strip(): erros.append('conteúdo')
+        
+        if erros:
+            return jsonify({'erro': f'Campos obrigatórios: {", ".join(erros)}'}), 400
+        
+        nid = str(uuid.uuid4())[:8]
+        agora = datetime.now().isoformat()
+        
+        conn = get_db()
+        cur = conn.cursor()
+        
+        # Se for destaque, remove destaque de todas as outras
+        if data.get('destaque'):
+            cur.execute("UPDATE noticias SET destaque=FALSE")
+        
+        cur.execute("""
+            INSERT INTO noticias (id,titulo,subtitulo,autor,data,categoria,imagem,conteudo,destaque,leituras,criado_em,editado_em)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s)
+        """, [
+            nid,
+            data['titulo'].strip(),
+            data.get('subtitulo', '').strip(),
+            data['autor'].strip(),
+            data['data'].strip(),
+            data.get('categoria', 'Futebol').strip(),
+            data.get('imagem', '').strip(),
+            data['conteudo'].strip(),
+            bool(data.get('destaque')),
+            agora,
+            agora
+        ])
+        conn.commit()
+        
+        cur.execute("SELECT * FROM noticias WHERE id=%s", [nid])
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        return jsonify(dict(row)), 201
+    except Exception as e:
+        log.error(f"Erro ao criar notícia: {e}")
+        return jsonify({'erro': 'Erro ao criar notícia'}), 500
 
 @app.route('/api/admin/noticias/<nid>', methods=['PUT'])
 @login_required
 def admin_editar(nid):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT id FROM noticias WHERE id=%s", [nid])
-    if not cur.fetchone():
-        cur.close(); conn.close()
-        return jsonify({'erro': 'Não encontrada'}), 404
-    data = request.get_json() or {}
-    agora = datetime.now().isoformat()
-    if data.get('destaque'):
-        cur.execute("UPDATE noticias SET destaque=FALSE WHERE id!=%s", [nid])
-    cur.execute("""
-        UPDATE noticias SET titulo=%s,subtitulo=%s,autor=%s,data=%s,categoria=%s,
-        imagem=%s,conteudo=%s,destaque=%s,editado_em=%s WHERE id=%s
-    """, [data.get('titulo','').strip(), data.get('subtitulo','').strip(), data.get('autor','').strip(),
-          data.get('data','').strip(), data.get('categoria','Futebol').strip(), data.get('imagem','').strip(),
-          data.get('conteudo','').strip(), bool(data.get('destaque')), agora, nid])
-    conn.commit()
-    cur.execute("SELECT * FROM noticias WHERE id=%s", [nid])
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return jsonify(dict(row))
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT id FROM noticias WHERE id=%s", [nid])
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'erro': 'Não encontrada'}), 404
+        
+        data = request.get_json() or {}
+        agora = datetime.now().isoformat()
+        
+        # Se for destaque, remove destaque de todas as outras
+        if data.get('destaque'):
+            cur.execute("UPDATE noticias SET destaque=FALSE WHERE id!=%s", [nid])
+        
+        cur.execute("""
+            UPDATE noticias 
+            SET titulo=%s, subtitulo=%s, autor=%s, data=%s, categoria=%s,
+                imagem=%s, conteudo=%s, destaque=%s, editado_em=%s 
+            WHERE id=%s
+        """, [
+            data.get('titulo', '').strip(),
+            data.get('subtitulo', '').strip(),
+            data.get('autor', '').strip(),
+            data.get('data', '').strip(),
+            data.get('categoria', 'Futebol').strip(),
+            data.get('imagem', '').strip(),
+            data.get('conteudo', '').strip(),
+            bool(data.get('destaque')),
+            agora,
+            nid
+        ])
+        conn.commit()
+        
+        cur.execute("SELECT * FROM noticias WHERE id=%s", [nid])
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        return jsonify(dict(row))
+    except Exception as e:
+        log.error(f"Erro ao editar notícia {nid}: {e}")
+        return jsonify({'erro': 'Erro ao editar notícia'}), 500
 
 @app.route('/api/admin/noticias/<nid>', methods=['DELETE'])
 @login_required
 def admin_apagar(nid):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("DELETE FROM noticias WHERE id=%s", [nid])
-    conn.commit(); cur.close(); conn.close()
-    return jsonify({'ok': True})
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM noticias WHERE id=%s", [nid])
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        log.error(f"Erro ao apagar notícia {nid}: {e}")
+        return jsonify({'erro': 'Erro ao apagar notícia'}), 500
 
 @app.route('/api/admin/noticias/<nid>/destaque', methods=['POST'])
 @login_required
 def admin_destaque(nid):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT destaque FROM noticias WHERE id=%s", [nid])
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        return jsonify({'erro': 'Não encontrada'}), 404
-    novo = not row['destaque']
-    if novo:
-        cur.execute("UPDATE noticias SET destaque=FALSE")
-    cur.execute("UPDATE noticias SET destaque=%s WHERE id=%s", [novo, nid])
-    conn.commit(); cur.close(); conn.close()
-    return jsonify({'destaque': novo})
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT destaque FROM noticias WHERE id=%s", [nid])
+        row = cur.fetchone()
+        if not row:
+            cur.close()
+            conn.close()
+            return jsonify({'erro': 'Não encontrada'}), 404
+        
+        novo = not row['destaque']
+        if novo:
+            cur.execute("UPDATE noticias SET destaque=FALSE")
+        cur.execute("UPDATE noticias SET destaque=%s WHERE id=%s", [novo, nid])
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'destaque': novo})
+    except Exception as e:
+        log.error(f"Erro ao alterar destaque: {e}")
+        return jsonify({'erro': 'Erro ao alterar destaque'}), 500
 
 @app.route('/api/admin/upload', methods=['POST'])
 @login_required
 def admin_upload():
-    if 'imagem' not in request.files:
-        return jsonify({'erro': 'Nenhum ficheiro'}), 400
-    f = request.files['imagem']
-    if not f.filename or not allowed_file(f.filename):
-        return jsonify({'erro': 'Tipo não permitido'}), 400
-    url = guardar_imagem_na_db(f)
-    return jsonify({'url': url, 'nome': url.rsplit('/', 1)[-1]})
-
+    try:
+        if 'imagem' not in request.files:
+            return jsonify({'erro': 'Nenhum ficheiro'}), 400
+        
+        f = request.files['imagem']
+        if not f.filename or not allowed_file(f.filename):
+            return jsonify({'erro': 'Tipo não permitido'}), 400
+        
+        url = guardar_imagem_na_db(f)
+        return jsonify({'url': url, 'nome': url.rsplit('/', 1)[-1]})
+    except Exception as e:
+        log.error(f"Erro no upload: {e}")
+        return jsonify({'erro': 'Erro ao fazer upload'}), 500
 
 @app.route('/api/admin/noticias/<nid>/galeria', methods=['POST'])
 @login_required
 def admin_galeria_add(nid):
-    """Adiciona imagem à galeria de uma notícia."""
-    if 'imagem' not in request.files:
-        return jsonify({'erro': 'Nenhum ficheiro'}), 400
-    f = request.files['imagem']
-    if not f.filename or not allowed_file(f.filename):
-        return jsonify({'erro': 'Tipo não permitido'}), 400
-    url  = guardar_imagem_na_db(f)
-    conn = get_db(); cur = conn.cursor()
-    # Verificar ordem máxima
-    cur.execute("SELECT COALESCE(MAX(ordem),0)+1 FROM galeria WHERE noticia_id=%s", [nid])
-    ordem = cur.fetchone()['coalesce']
-    cur.execute("INSERT INTO galeria (noticia_id, imagem, ordem) VALUES (%s,%s,%s)", [nid, url, ordem])
-    conn.commit()
-    cur.execute("SELECT * FROM galeria WHERE noticia_id=%s ORDER BY ordem", [nid])
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return jsonify({'url': url, 'galeria': [dict(r) for r in rows]}), 201
+    try:
+        if 'imagem' not in request.files:
+            return jsonify({'erro': 'Nenhum ficheiro'}), 400
+        
+        f = request.files['imagem']
+        if not f.filename or not allowed_file(f.filename):
+            return jsonify({'erro': 'Tipo não permitido'}), 400
+        
+        url = guardar_imagem_na_db(f)
+        conn = get_db()
+        cur = conn.cursor()
+        
+        # Verificar ordem máxima
+        cur.execute(
+            "SELECT COALESCE(MAX(ordem),0)+1 FROM galeria WHERE noticia_id=%s",
+            [nid]
+        )
+        ordem = cur.fetchone()['coalesce']
+        
+        cur.execute(
+            "INSERT INTO galeria (noticia_id, imagem, ordem) VALUES (%s,%s,%s)",
+            [nid, url, ordem]
+        )
+        conn.commit()
+        
+        cur.execute(
+            "SELECT * FROM galeria WHERE noticia_id=%s ORDER BY ordem",
+            [nid]
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'url': url, 'galeria': [dict(r) for r in rows]}), 201
+    except Exception as e:
+        log.error(f"Erro ao adicionar à galeria: {e}")
+        return jsonify({'erro': 'Erro ao adicionar à galeria'}), 500
 
 @app.route('/api/admin/noticias/<nid>/galeria', methods=['GET'])
 @login_required
 def admin_galeria_get(nid):
-    """Lista imagens da galeria de uma notícia."""
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM galeria WHERE noticia_id=%s ORDER BY ordem", [nid])
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return jsonify([dict(r) for r in rows])
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM galeria WHERE noticia_id=%s ORDER BY ordem",
+            [nid]
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        log.error(f"Erro ao listar galeria: {e}")
+        return jsonify({'erro': 'Erro ao listar galeria'}), 500
 
 @app.route('/api/admin/galeria/<int:gid>', methods=['DELETE'])
 @login_required
 def admin_galeria_delete(gid):
-    """Remove imagem da galeria."""
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("DELETE FROM galeria WHERE id=%s", [gid])
-    conn.commit(); cur.close(); conn.close()
-    return jsonify({'ok': True})
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM galeria WHERE id=%s", [gid])
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        log.error(f"Erro ao remover da galeria: {e}")
+        return jsonify({'erro': 'Erro ao remover da galeria'}), 500
 
 @app.route('/api/admin/galeria/url', methods=['POST'])
 @login_required
 def admin_galeria_add_url():
-    """Adiciona imagem à galeria via URL."""
-    data = request.get_json() or {}
-    nid  = data.get('noticia_id', '').strip()
-    url  = data.get('url', '').strip()
-    if not nid or not url:
-        return jsonify({'erro': 'noticia_id e url obrigatórios'}), 400
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT COALESCE(MAX(ordem),0)+1 FROM galeria WHERE noticia_id=%s", [nid])
-    ordem = cur.fetchone()['coalesce']
-    cur.execute("INSERT INTO galeria (noticia_id, imagem, ordem) VALUES (%s,%s,%s)", [nid, url, ordem])
-    conn.commit()
-    cur.execute("SELECT * FROM galeria WHERE noticia_id=%s ORDER BY ordem", [nid])
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return jsonify({'galeria': [dict(r) for r in rows]}), 201
+    try:
+        data = request.get_json() or {}
+        nid = data.get('noticia_id', '').strip()
+        url = data.get('url', '').strip()
+        
+        if not nid or not url:
+            return jsonify({'erro': 'noticia_id e url obrigatórios'}), 400
+        
+        conn = get_db()
+        cur = conn.cursor()
+        
+        cur.execute(
+            "SELECT COALESCE(MAX(ordem),0)+1 FROM galeria WHERE noticia_id=%s",
+            [nid]
+        )
+        ordem = cur.fetchone()['coalesce']
+        
+        cur.execute(
+            "INSERT INTO galeria (noticia_id, imagem, ordem) VALUES (%s,%s,%s)",
+            [nid, url, ordem]
+        )
+        conn.commit()
+        
+        cur.execute(
+            "SELECT * FROM galeria WHERE noticia_id=%s ORDER BY ordem",
+            [nid]
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'galeria': [dict(r) for r in rows]}), 201
+    except Exception as e:
+        log.error(f"Erro ao adicionar URL à galeria: {e}")
+        return jsonify({'erro': 'Erro ao adicionar URL à galeria'}), 500
 
 @app.route('/api/admin/categorias', methods=['GET'])
 @login_required
 def admin_cats():
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT nome FROM categorias ORDER BY nome")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return jsonify([r['nome'] for r in rows])
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT nome FROM categorias ORDER BY nome")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify([r['nome'] for r in rows])
+    except Exception as e:
+        log.error(f"Erro ao listar categorias admin: {e}")
+        return jsonify({'erro': 'Erro ao listar categorias'}), 500
 
 @app.route('/api/admin/categorias', methods=['POST'])
 @login_required
 def admin_criar_cat():
-    data = request.get_json() or {}
-    nome = data.get('nome', '').strip()
-    if not nome:
-        return jsonify({'erro': 'Nome obrigatório'}), 400
-    conn = get_db(); cur = conn.cursor()
     try:
-        cur.execute("INSERT INTO categorias (nome) VALUES (%s)", [nome])
-        conn.commit()
-    except psycopg2.errors.UniqueViolation:
-        conn.rollback(); cur.close(); conn.close()
-        return jsonify({'erro': 'Categoria já existe'}), 409
-    cur.close(); conn.close()
-    return jsonify({'ok': True, 'nome': nome}), 201
+        data = request.get_json() or {}
+        nome = data.get('nome', '').strip()
+        
+        if not nome:
+            return jsonify({'erro': 'Nome obrigatório'}), 400
+        
+        conn = get_db()
+        cur = conn.cursor()
+        
+        try:
+            cur.execute("INSERT INTO categorias (nome) VALUES (%s)", [nome])
+            conn.commit()
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+            cur.close()
+            conn.close()
+            return jsonify({'erro': 'Categoria já existe'}), 409
+        
+        cur.close()
+        conn.close()
+        return jsonify({'ok': True, 'nome': nome}), 201
+    except Exception as e:
+        log.error(f"Erro ao criar categoria: {e}")
+        return jsonify({'erro': 'Erro ao criar categoria'}), 500
 
 @app.route('/api/admin/categorias/<nome>', methods=['DELETE'])
 @login_required
 def admin_apagar_cat(nome):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM noticias WHERE categoria=%s", [nome])
-    em_uso = cur.fetchone()['count']
-    if em_uso:
-        cur.close(); conn.close()
-        return jsonify({'erro': f'Em uso por {em_uso} notícia(s)'}), 409
-    cur.execute("DELETE FROM categorias WHERE nome=%s", [nome])
-    conn.commit(); cur.close(); conn.close()
-    return jsonify({'ok': True})
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        # Verifica se está em uso
+        cur.execute("SELECT COUNT(*) FROM noticias WHERE categoria=%s", [nome])
+        em_uso = cur.fetchone()['count']
+        
+        if em_uso:
+            cur.close()
+            conn.close()
+            return jsonify({'erro': f'Em uso por {em_uso} notícia(s)'}), 409
+        
+        cur.execute("DELETE FROM categorias WHERE nome=%s", [nome])
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        log.error(f"Erro ao apagar categoria: {e}")
+        return jsonify({'erro': 'Erro ao apagar categoria'}), 500
 
 @app.route('/api/admin/stats')
 @login_required
 def admin_stats():
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM noticias")
-    total = cur.fetchone()['count']
-    cur.execute("SELECT COUNT(*) FROM noticias WHERE destaque=TRUE")
-    destaques = cur.fetchone()['count']
-    cur.execute("SELECT COUNT(*) FROM categorias")
-    total_cats = cur.fetchone()['count']
-    cur.execute("SELECT categoria, COUNT(*) as n FROM noticias GROUP BY categoria ORDER BY n DESC")
-    por_cat = cur.fetchall()
-    cur.execute("SELECT * FROM noticias ORDER BY criado_em DESC LIMIT 5")
-    recentes = cur.fetchall()
-    cur.close(); conn.close()
-    return jsonify({
-        'total': total, 'destaques': destaques, 'total_categorias': total_cats,
-        'por_categoria': [dict(r) for r in por_cat],
-        'recentes': [dict(r) for r in recentes],
-    })
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT COUNT(*) FROM noticias")
+        total = cur.fetchone()['count']
+        
+        cur.execute("SELECT COUNT(*) FROM noticias WHERE destaque=TRUE")
+        destaques = cur.fetchone()['count']
+        
+        cur.execute("SELECT COUNT(*) FROM categorias")
+        total_cats = cur.fetchone()['count']
+        
+        cur.execute("""
+            SELECT categoria, COUNT(*) as n 
+            FROM noticias 
+            GROUP BY categoria 
+            ORDER BY n DESC
+        """)
+        por_cat = cur.fetchall()
+        
+        cur.execute("""
+            SELECT * FROM noticias 
+            ORDER BY criado_em DESC 
+            LIMIT 5
+        """)
+        recentes = cur.fetchall()
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'total': total,
+            'destaques': destaques,
+            'total_categorias': total_cats,
+            'por_categoria': [dict(r) for r in por_cat],
+            'recentes': [dict(r) for r in recentes],
+        })
+    except Exception as e:
+        log.error(f"Erro ao buscar stats: {e}")
+        return jsonify({'erro': 'Erro ao buscar estatísticas'}), 500
 
 # ─── Inicialização ────────────────────────────────────────────────────────────
-
-if DATABASE_URL:
-    try:
-        init_db()
-        log.info("DATABASE OK — Supabase/PostgreSQL ligado")
-    except Exception as e:
-        log.error(f"ERRO DATABASE: {e}")
-else:
-    log.warning("DATABASE_URL nao definida!")
 
 if __name__ == '__main__':
     porta = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('DEBUG', 'true').lower() == 'true'
+    
+    # Inicializa a base de dados
+    try:
+        init_db()
+        log.info("Base de dados inicializada com sucesso!")
+    except Exception as e:
+        log.error(f"ERRO ao inicializar base de dados: {e}")
+        log.warning("A aplicação pode não funcionar corretamente sem base de dados.")
+    
     log.info(f"Servidor a iniciar na porta {porta}")
+    log.info(f"Modo debug: {debug}")
+    log.info(f"Admin user: {ADMIN_USER}")
+    log.info(f"Admin pass: {ADMIN_PASS}")
+    
     app.run(host='0.0.0.0', port=porta, debug=debug)
