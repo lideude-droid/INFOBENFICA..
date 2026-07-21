@@ -1,6 +1,6 @@
 """
 ENCARNADO — Portal de Notícias do Benfica
-server.py — Flask + PostgreSQL (RocketAdmin) com SQLAlchemy + Fallback
+Versão com psycopg2 + retry + fallback (sem SQLAlchemy)
 """
 
 import os
@@ -8,15 +8,14 @@ import hashlib
 import secrets
 import uuid
 import logging
-import json
+import time
 from datetime import datetime
 from functools import wraps
 
+import psycopg2
+import psycopg2.extras
 from flask import Flask, request, jsonify, send_from_directory, session, Response
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import text, exc
-from urllib.parse import urlparse
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
@@ -50,162 +49,152 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 app = Flask(__name__, static_folder=None)
 app.secret_key = SECRET_KEY
 app.config['MAX_CONTENT_LENGTH'] = MAX_IMG_MB * 1024 * 1024
-
-# ─── Configuração SQLAlchemy com SSL forçado ────────────────────────────────
-# Extrai parâmetros da URL para construir uma string de conexão com SSL
-parsed = urlparse(DATABASE_URL)
-ssl_config = {
-    'sslmode': 'require',
-    'connect_timeout': 30,
-    'keepalives_idle': 5,
-    'keepalives_interval': 2,
-    'keepalives_count': 2,
-}
-# Monta a URL com os parâmetros SSL
-db_url = (
-    f"postgresql://{parsed.username}:{parsed.password}@{parsed.hostname}:{parsed.port}/{parsed.path[1:]}"
-    f"?sslmode=require&connect_timeout=30&keepalives_idle=5&keepalives_interval=2&keepalives_count=2"
-)
-app.config['SQLALCHEMY_DATABASE_URI'] = db_url
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_size': 5,
-    'pool_recycle': 300,
-    'pool_pre_ping': True,
-    'pool_use_lifo': True,
-}
-
-db = SQLAlchemy(app)
-
 CORS(app, supports_credentials=True)
 
 ADMIN_PASS_HASH = hashlib.sha256(ADMIN_PASS.encode()).hexdigest()
 
-# ─── Fallback: dados locais (JSON) caso a base falhe ──────────────────────
-FALLBACK_FILE = os.path.join(BASE_DIR, 'fallback_data.json')
+# ─── Base de dados ────────────────────────────────────────────────────────────
 
-def load_fallback_noticias():
-    try:
-        with open(FALLBACK_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except:
-        return []
-
-def save_fallback_noticias(noticias):
-    with open(FALLBACK_FILE, 'w', encoding='utf-8') as f:
-        json.dump(noticias, f, ensure_ascii=False, indent=2)
-
-# ─── Inicialização da Base de Dados ──────────────────────────────────────────
+def get_db(retries=3, delay=2):
+    """
+    Tenta ligar à base de dados com SSL, com várias tentativas.
+    """
+    errors = []
+    for attempt in range(1, retries + 1):
+        try:
+            conn = psycopg2.connect(
+                DATABASE_URL,
+                sslmode='require',
+                connect_timeout=30,
+                cursor_factory=psycopg2.extras.RealDictCursor,
+                keepalives_idle=5,
+                keepalives_interval=2,
+                keepalives_count=2,
+            )
+            # Testa a ligação com uma query simples
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            log.info(f"Ligação à base de dados estabelecida (tentativa {attempt})")
+            return conn
+        except Exception as e:
+            error_msg = f"Tentativa {attempt}: {str(e)}"
+            errors.append(error_msg)
+            log.warning(error_msg)
+            if attempt < retries:
+                time.sleep(delay)
+    raise Exception(f"Falha ao ligar à base de dados após {retries} tentativas: {'; '.join(errors)}")
 
 def init_db():
     """Cria as tabelas se não existirem."""
-    log.info("A inicializar base de dados com SQLAlchemy...")
+    log.info("Inicializando base de dados...")
+    conn = None
     try:
-        with app.app_context():
-            # Cria todas as tabelas definidas (usamos raw SQL para maior controlo)
-            with db.engine.connect() as conn:
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS noticias (
-                        id          TEXT PRIMARY KEY,
-                        titulo      TEXT NOT NULL,
-                        subtitulo   TEXT DEFAULT '',
-                        autor       TEXT NOT NULL,
-                        data        TEXT NOT NULL,
-                        categoria   TEXT NOT NULL,
-                        imagem      TEXT DEFAULT '',
-                        conteudo    TEXT NOT NULL DEFAULT '',
-                        destaque    BOOLEAN DEFAULT FALSE,
-                        leituras    INTEGER DEFAULT 0,
-                        criado_em   TEXT NOT NULL,
-                        editado_em  TEXT NOT NULL
-                    );
-                """))
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS categorias (
-                        id    SERIAL PRIMARY KEY,
-                        nome  TEXT NOT NULL UNIQUE
-                    );
-                """))
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS galeria (
-                        id         SERIAL PRIMARY KEY,
-                        noticia_id TEXT NOT NULL REFERENCES noticias(id) ON DELETE CASCADE,
-                        imagem     TEXT NOT NULL,
-                        ordem      INTEGER DEFAULT 0
-                    );
-                """))
-                conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS imagens (
-                        id         TEXT PRIMARY KEY,
-                        dados      BYTEA NOT NULL,
-                        mime       TEXT NOT NULL,
-                        criado_em  TEXT NOT NULL
-                    );
-                """))
-                # Inserir categorias padrão
-                categorias = ['Futebol', 'Modalidades', 'Mercado', 'Formação', 'Opinião']
-                for cat in categorias:
-                    conn.execute(
-                        text("INSERT INTO categorias (nome) VALUES (:nome) ON CONFLICT (nome) DO NOTHING"),
-                        {'nome': cat}
-                    )
-                conn.commit()
+        conn = get_db()
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS noticias (
+                    id          TEXT PRIMARY KEY,
+                    titulo      TEXT NOT NULL,
+                    subtitulo   TEXT DEFAULT '',
+                    autor       TEXT NOT NULL,
+                    data        TEXT NOT NULL,
+                    categoria   TEXT NOT NULL,
+                    imagem      TEXT DEFAULT '',
+                    conteudo    TEXT NOT NULL DEFAULT '',
+                    destaque    BOOLEAN DEFAULT FALSE,
+                    leituras    INTEGER DEFAULT 0,
+                    criado_em   TEXT NOT NULL,
+                    editado_em  TEXT NOT NULL
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS categorias (
+                    id    SERIAL PRIMARY KEY,
+                    nome  TEXT NOT NULL UNIQUE
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS galeria (
+                    id         SERIAL PRIMARY KEY,
+                    noticia_id TEXT NOT NULL REFERENCES noticias(id) ON DELETE CASCADE,
+                    imagem     TEXT NOT NULL,
+                    ordem      INTEGER DEFAULT 0
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS imagens (
+                    id         TEXT PRIMARY KEY,
+                    dados      BYTEA NOT NULL,
+                    mime       TEXT NOT NULL,
+                    criado_em  TEXT NOT NULL
+                );
+            """)
+            # Inserir categorias padrão
+            categorias = ['Futebol', 'Modalidades', 'Mercado', 'Formação', 'Opinião']
+            for cat in categorias:
+                cur.execute(
+                    "INSERT INTO categorias (nome) VALUES (%s) ON CONFLICT (nome) DO NOTHING",
+                    (cat,)
+                )
+            conn.commit()
         log.info("Base de dados inicializada com sucesso!")
-        return True
     except Exception as e:
-        log.error(f"Erro ao inicializar base de dados: {e}")
-        return False
+        log.error(f"Erro ao inicializar a base de dados: {e}")
+        raise
+    finally:
+        if conn:
+            conn.close()
 
-# ─── Funções auxiliares com fallback ──────────────────────────────────────
-
-def execute_db_query(query, params=None, fetch_one=False, fetch_all=False, commit=False):
-    """Executa uma query com tratamento de erro e fallback para JSON."""
-    try:
-        with app.app_context():
-            with db.engine.connect() as conn:
+def execute_query(query, params=None, fetch_one=False, fetch_all=False, commit=False, retries=3):
+    """
+    Executa uma query com tratamento de erro e retry.
+    """
+    last_error = None
+    for attempt in range(1, retries + 1):
+        conn = None
+        try:
+            conn = get_db()
+            with conn.cursor() as cur:
+                cur.execute(query, params or ())
                 if commit:
-                    conn.execute(text(query), params or {})
                     conn.commit()
                     return True
-                result = conn.execute(text(query), params or {})
                 if fetch_one:
-                    row = result.fetchone()
-                    return dict(row._mapping) if row else None
+                    row = cur.fetchone()
+                    return dict(row) if row else None
                 if fetch_all:
-                    return [dict(r._mapping) for r in result.fetchall()]
-                return result
-    except Exception as e:
-        log.error(f"Erro na query: {e}")
-        # Fallback: se for uma leitura e não houver dados, retorna lista vazia ou None
-        if fetch_all:
-            return []
-        if fetch_one:
-            return None
-        raise
-
-# ─── Funções específicas ──────────────────────────────────────────────────
-
-def guardar_imagem_na_db(file_storage):
-    """Guarda imagem na tabela imagens e retorna URL."""
-    try:
-        ext = file_storage.filename.rsplit('.', 1)[1].lower()
-        mime = MIME_POR_EXT.get(ext, file_storage.mimetype or 'application/octet-stream')
-        dados = file_storage.read()
-        iid = uuid.uuid4().hex
-        with app.app_context():
-            with db.engine.connect() as conn:
-                conn.execute(
-                    text("INSERT INTO imagens (id, dados, mime, criado_em) VALUES (:id, :dados, :mime, :criado_em)"),
-                    {'id': iid, 'dados': dados, 'mime': mime, 'criado_em': datetime.now().isoformat()}
-                )
-                conn.commit()
-        return f"/api/imagem/{iid}"
-    except Exception as e:
-        log.error(f"Erro ao guardar imagem: {e}")
-        raise
+                    rows = cur.fetchall()
+                    return [dict(r) for r in rows]
+                # Para SELECT sem fetch (ex: contagens) pode ser usado assim
+                return cur
+        except Exception as e:
+            last_error = e
+            log.error(f"Erro na query (tentativa {attempt}): {e}")
+            if attempt < retries:
+                time.sleep(2)
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+    # Se todas as tentativas falharem, retorna None ou levanta exceção conforme o caso
+    if fetch_all:
+        return []
+    if fetch_one:
+        return None
+    raise last_error
 
 def allowed_file(f):
     return '.' in f and f.rsplit('.', 1)[1].lower() in ALLOWED_EXT
+
+def guardar_imagem_na_db(file_storage):
+    ext = file_storage.filename.rsplit('.', 1)[1].lower()
+    mime = MIME_POR_EXT.get(ext, file_storage.mimetype or 'application/octet-stream')
+    dados = file_storage.read()
+    iid = uuid.uuid4().hex
+    query = "INSERT INTO imagens (id, dados, mime, criado_em) VALUES (%s, %s, %s, %s)"
+    execute_query(query, (iid, psycopg2.Binary(dados), mime, datetime.now().isoformat()), commit=True)
+    return f"/api/imagem/{iid}"
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -217,7 +206,7 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
-# ─── Rotas estáticas ─────────────────────────────────────────────────────────
+# ─── Estáticos ────────────────────────────────────────────────────────────────
 
 @app.route('/')
 def index():
@@ -251,19 +240,16 @@ def static_assets(path):
 @app.route('/api/imagem/<iid>')
 def api_imagem(iid):
     try:
-        with app.app_context():
-            with db.engine.connect() as conn:
-                row = conn.execute(
-                    text("SELECT dados, mime FROM imagens WHERE id = :id"),
-                    {'id': iid}
-                ).fetchone()
-                if not row:
-                    return jsonify({'erro': 'Imagem não encontrada'}), 404
-                dados = row._mapping['dados']
-                mime = row._mapping['mime']
-                resp = Response(bytes(dados), mimetype=mime)
-                resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-                return resp
+        query = "SELECT dados, mime FROM imagens WHERE id = %s"
+        row = execute_query(query, (iid,), fetch_one=True)
+        if not row:
+            return jsonify({'erro': 'Imagem não encontrada'}), 404
+        dados = row['dados']
+        if isinstance(dados, memoryview):
+            dados = dados.tobytes()
+        resp = Response(bytes(dados), mimetype=row['mime'])
+        resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        return resp
     except Exception as e:
         log.error(f"Erro ao servir imagem: {e}")
         return jsonify({'erro': 'Erro interno'}), 500
@@ -298,29 +284,24 @@ def api_noticias():
         q   = request.args.get('q', '').strip()
         lim = min(int(request.args.get('limite', 50)), 100)
         off = int(request.args.get('offset', 0))
-        params = {}
+        params = []
         conditions = []
         if cat:
-            conditions.append("categoria = :cat")
-            params['cat'] = cat
+            conditions.append("categoria = %s")
+            params.append(cat)
         if q:
-            conditions.append("(titulo ILIKE :q1 OR subtitulo ILIKE :q2)")
-            params['q1'] = f'%{q}%'
-            params['q2'] = f'%{q}%'
+            conditions.append("(titulo ILIKE %s OR subtitulo ILIKE %s)")
+            params.extend([f'%{q}%', f'%{q}%'])
         where = "WHERE " + " AND ".join(conditions) if conditions else ""
         query = f"""
             SELECT * FROM noticias {where}
             ORDER BY destaque DESC, data DESC, criado_em DESC
-            LIMIT :lim OFFSET :off
+            LIMIT %s OFFSET %s
         """
-        params['lim'] = lim
-        params['off'] = off
-        rows = execute_db_query(query, params, fetch_all=True)
-        # Contagem total
+        rows = execute_query(query, params + [lim, off], fetch_all=True)
         count_query = f"SELECT COUNT(*) FROM noticias {where}"
-        count_params = {k:v for k,v in params.items() if k not in ('lim','off')}
-        total = execute_db_query(count_query, count_params, fetch_one=True)
-        total = total['count'] if total else 0
+        count_row = execute_query(count_query, params, fetch_one=True)
+        total = count_row['count'] if count_row else 0
         return jsonify({'noticias': rows, 'total': total})
     except Exception as e:
         log.error(f"Erro em /api/noticias: {e}")
@@ -329,12 +310,12 @@ def api_noticias():
 @app.route('/api/noticias/destaque')
 def api_destaque():
     try:
-        row = execute_db_query(
+        row = execute_query(
             "SELECT * FROM noticias WHERE destaque=TRUE ORDER BY data DESC LIMIT 1",
             fetch_one=True
         )
         if not row:
-            row = execute_db_query(
+            row = execute_query(
                 "SELECT * FROM noticias ORDER BY data DESC, criado_em DESC LIMIT 1",
                 fetch_one=True
             )
@@ -347,9 +328,9 @@ def api_destaque():
 def api_recentes():
     try:
         lim = min(int(request.args.get('limite', 6)), 20)
-        rows = execute_db_query(
-            "SELECT * FROM noticias ORDER BY data DESC, criado_em DESC LIMIT :lim",
-            {'lim': lim}, fetch_all=True
+        rows = execute_query(
+            "SELECT * FROM noticias ORDER BY data DESC, criado_em DESC LIMIT %s",
+            (lim,), fetch_all=True
         )
         return jsonify(rows)
     except Exception as e:
@@ -359,7 +340,7 @@ def api_recentes():
 @app.route('/api/noticias/mais-lidas')
 def api_mais_lidas():
     try:
-        rows = execute_db_query(
+        rows = execute_query(
             "SELECT * FROM noticias ORDER BY leituras DESC, data DESC LIMIT 5",
             fetch_all=True
         )
@@ -371,23 +352,22 @@ def api_mais_lidas():
 @app.route('/api/noticias/<nid>')
 def api_noticia(nid):
     try:
-        row = execute_db_query(
-            "SELECT * FROM noticias WHERE id = :id",
-            {'id': nid}, fetch_one=True
+        row = execute_query(
+            "SELECT * FROM noticias WHERE id = %s", (nid,), fetch_one=True
         )
         if not row:
             return jsonify({'erro': 'Não encontrada'}), 404
-        galeria = execute_db_query(
-            "SELECT imagem FROM galeria WHERE noticia_id = :id ORDER BY ordem",
-            {'id': nid}, fetch_all=True
+        galeria = execute_query(
+            "SELECT imagem FROM galeria WHERE noticia_id = %s ORDER BY ordem",
+            (nid,), fetch_all=True
         )
-        relacionadas = execute_db_query(
+        relacionadas = execute_query(
             """
             SELECT * FROM noticias
-            WHERE categoria = :cat AND id != :id
+            WHERE categoria = %s AND id != %s
             ORDER BY data DESC LIMIT 3
             """,
-            {'cat': row['categoria'], 'id': nid}, fetch_all=True
+            (row['categoria'], nid), fetch_all=True
         )
         row['galeria'] = [g['imagem'] for g in galeria]
         row['relacionadas'] = relacionadas
@@ -399,9 +379,9 @@ def api_noticia(nid):
 @app.route('/api/noticias/<nid>/leitura', methods=['POST'])
 def api_leitura(nid):
     try:
-        execute_db_query(
-            "UPDATE noticias SET leituras = leituras + 1 WHERE id = :id",
-            {'id': nid}, commit=True
+        execute_query(
+            "UPDATE noticias SET leituras = leituras + 1 WHERE id = %s",
+            (nid,), commit=True
         )
         return jsonify({'ok': True})
     except Exception as e:
@@ -409,10 +389,10 @@ def api_leitura(nid):
         return jsonify({'erro': 'Erro ao registrar leitura'}), 500
 
 @app.route('/api/categorias')
-@app.route('/api/categories')  # alias para compatibilidade
+@app.route('/api/categories')  # alias
 def api_categorias():
     try:
-        rows = execute_db_query("SELECT nome FROM categorias ORDER BY nome", fetch_all=True)
+        rows = execute_query("SELECT nome FROM categorias ORDER BY nome", fetch_all=True)
         return jsonify([r['nome'] for r in rows])
     except Exception as e:
         log.error(f"Erro em /api/categorias: {e}")
@@ -426,17 +406,16 @@ def admin_listar():
     try:
         q = request.args.get('q', '').strip()
         cat = request.args.get('categoria', '').strip()
-        params = {}
+        params = []
         conditions = []
         if q:
-            conditions.append("(titulo ILIKE :q1 OR autor ILIKE :q2)")
-            params['q1'] = f'%{q}%'
-            params['q2'] = f'%{q}%'
+            conditions.append("(titulo ILIKE %s OR autor ILIKE %s)")
+            params.extend([f'%{q}%', f'%{q}%'])
         if cat:
-            conditions.append("categoria = :cat")
-            params['cat'] = cat
+            conditions.append("categoria = %s")
+            params.append(cat)
         where = "WHERE " + " AND ".join(conditions) if conditions else ""
-        rows = execute_db_query(
+        rows = execute_query(
             f"SELECT * FROM noticias {where} ORDER BY data DESC, criado_em DESC",
             params, fetch_all=True
         )
@@ -460,33 +439,28 @@ def admin_criar():
 
         nid = str(uuid.uuid4())[:8]
         agora = datetime.now().isoformat()
-        with app.app_context():
-            with db.engine.connect() as conn:
-                if data.get('destaque'):
-                    conn.execute(text("UPDATE noticias SET destaque=FALSE"))
-                conn.execute(
-                    text("""
-                        INSERT INTO noticias
-                        (id, titulo, subtitulo, autor, data, categoria, imagem, conteudo, destaque, leituras, criado_em, editado_em)
-                        VALUES (:id, :titulo, :subtitulo, :autor, :data, :categoria, :imagem, :conteudo, :destaque, 0, :criado_em, :editado_em)
-                    """),
-                    {
-                        'id': nid,
-                        'titulo': data['titulo'].strip(),
-                        'subtitulo': data.get('subtitulo', '').strip(),
-                        'autor': data['autor'].strip(),
-                        'data': data['data'].strip(),
-                        'categoria': data.get('categoria', 'Futebol').strip(),
-                        'imagem': data.get('imagem', '').strip(),
-                        'conteudo': data['conteudo'].strip(),
-                        'destaque': bool(data.get('destaque')),
-                        'criado_em': agora,
-                        'editado_em': agora
-                    }
-                )
-                conn.commit()
-                row = conn.execute(text("SELECT * FROM noticias WHERE id = :id"), {'id': nid}).fetchone()
-                return jsonify(dict(row._mapping) if row else {})
+        destaque = bool(data.get('destaque'))
+        if destaque:
+            execute_query("UPDATE noticias SET destaque=FALSE", commit=True)
+        execute_query("""
+            INSERT INTO noticias
+            (id, titulo, subtitulo, autor, data, categoria, imagem, conteudo, destaque, leituras, criado_em, editado_em)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s)
+        """, (
+            nid,
+            data['titulo'].strip(),
+            data.get('subtitulo', '').strip(),
+            data['autor'].strip(),
+            data['data'].strip(),
+            data.get('categoria', 'Futebol').strip(),
+            data.get('imagem', '').strip(),
+            data['conteudo'].strip(),
+            destaque,
+            agora,
+            agora
+        ), commit=True)
+        row = execute_query("SELECT * FROM noticias WHERE id = %s", (nid,), fetch_one=True)
+        return jsonify(row or {})
     except Exception as e:
         log.error(f"Erro em admin_criar: {e}")
         return jsonify({'erro': 'Erro ao criar notícia'}), 500
@@ -497,44 +471,39 @@ def admin_editar(nid):
     try:
         data = request.get_json() or {}
         agora = datetime.now().isoformat()
-        with app.app_context():
-            with db.engine.connect() as conn:
-                # Verifica se existe
-                exists = conn.execute(text("SELECT id FROM noticias WHERE id = :id"), {'id': nid}).fetchone()
-                if not exists:
-                    return jsonify({'erro': 'Não encontrada'}), 404
-                if data.get('destaque'):
-                    conn.execute(text("UPDATE noticias SET destaque=FALSE WHERE id != :id"), {'id': nid})
-                conn.execute(
-                    text("""
-                        UPDATE noticias SET
-                            titulo = :titulo,
-                            subtitulo = :subtitulo,
-                            autor = :autor,
-                            data = :data,
-                            categoria = :categoria,
-                            imagem = :imagem,
-                            conteudo = :conteudo,
-                            destaque = :destaque,
-                            editado_em = :editado_em
-                        WHERE id = :id
-                    """),
-                    {
-                        'id': nid,
-                        'titulo': data.get('titulo', '').strip(),
-                        'subtitulo': data.get('subtitulo', '').strip(),
-                        'autor': data.get('autor', '').strip(),
-                        'data': data.get('data', '').strip(),
-                        'categoria': data.get('categoria', 'Futebol').strip(),
-                        'imagem': data.get('imagem', '').strip(),
-                        'conteudo': data.get('conteudo', '').strip(),
-                        'destaque': bool(data.get('destaque')),
-                        'editado_em': agora
-                    }
-                )
-                conn.commit()
-                row = conn.execute(text("SELECT * FROM noticias WHERE id = :id"), {'id': nid}).fetchone()
-                return jsonify(dict(row._mapping) if row else {})
+        # Verifica existência
+        exists = execute_query("SELECT id FROM noticias WHERE id = %s", (nid,), fetch_one=True)
+        if not exists:
+            return jsonify({'erro': 'Não encontrada'}), 404
+        destaque = bool(data.get('destaque'))
+        if destaque:
+            execute_query("UPDATE noticias SET destaque=FALSE WHERE id != %s", (nid,), commit=True)
+        execute_query("""
+            UPDATE noticias SET
+                titulo = %s,
+                subtitulo = %s,
+                autor = %s,
+                data = %s,
+                categoria = %s,
+                imagem = %s,
+                conteudo = %s,
+                destaque = %s,
+                editado_em = %s
+            WHERE id = %s
+        """, (
+            data.get('titulo', '').strip(),
+            data.get('subtitulo', '').strip(),
+            data.get('autor', '').strip(),
+            data.get('data', '').strip(),
+            data.get('categoria', 'Futebol').strip(),
+            data.get('imagem', '').strip(),
+            data.get('conteudo', '').strip(),
+            destaque,
+            agora,
+            nid
+        ), commit=True)
+        row = execute_query("SELECT * FROM noticias WHERE id = %s", (nid,), fetch_one=True)
+        return jsonify(row or {})
     except Exception as e:
         log.error(f"Erro em admin_editar: {e}")
         return jsonify({'erro': 'Erro ao editar notícia'}), 500
@@ -543,7 +512,7 @@ def admin_editar(nid):
 @login_required
 def admin_apagar(nid):
     try:
-        execute_db_query("DELETE FROM noticias WHERE id = :id", {'id': nid}, commit=True)
+        execute_query("DELETE FROM noticias WHERE id = %s", (nid,), commit=True)
         return jsonify({'ok': True})
     except Exception as e:
         log.error(f"Erro em admin_apagar: {e}")
@@ -553,17 +522,14 @@ def admin_apagar(nid):
 @login_required
 def admin_destaque(nid):
     try:
-        with app.app_context():
-            with db.engine.connect() as conn:
-                row = conn.execute(text("SELECT destaque FROM noticias WHERE id = :id"), {'id': nid}).fetchone()
-                if not row:
-                    return jsonify({'erro': 'Não encontrada'}), 404
-                novo = not row._mapping['destaque']
-                if novo:
-                    conn.execute(text("UPDATE noticias SET destaque=FALSE"))
-                conn.execute(text("UPDATE noticias SET destaque = :destaque WHERE id = :id"), {'destaque': novo, 'id': nid})
-                conn.commit()
-                return jsonify({'destaque': novo})
+        row = execute_query("SELECT destaque FROM noticias WHERE id = %s", (nid,), fetch_one=True)
+        if not row:
+            return jsonify({'erro': 'Não encontrada'}), 404
+        novo = not row['destaque']
+        if novo:
+            execute_query("UPDATE noticias SET destaque=FALSE", commit=True)
+        execute_query("UPDATE noticias SET destaque = %s WHERE id = %s", (novo, nid), commit=True)
+        return jsonify({'destaque': novo})
     except Exception as e:
         log.error(f"Erro em admin_destaque: {e}")
         return jsonify({'erro': 'Erro ao alterar destaque'}), 500
@@ -594,22 +560,21 @@ def admin_galeria_add(nid):
         if not f.filename or not allowed_file(f.filename):
             return jsonify({'erro': 'Tipo não permitido'}), 400
         url = guardar_imagem_na_db(f)
-        with app.app_context():
-            with db.engine.connect() as conn:
-                ordem = conn.execute(
-                    text("SELECT COALESCE(MAX(ordem),0)+1 FROM galeria WHERE noticia_id = :id"),
-                    {'id': nid}
-                ).fetchone()[0]
-                conn.execute(
-                    text("INSERT INTO galeria (noticia_id, imagem, ordem) VALUES (:id, :imagem, :ordem)"),
-                    {'id': nid, 'imagem': url, 'ordem': ordem}
-                )
-                conn.commit()
-                rows = conn.execute(
-                    text("SELECT * FROM galeria WHERE noticia_id = :id ORDER BY ordem"),
-                    {'id': nid}
-                ).fetchall()
-                return jsonify({'url': url, 'galeria': [dict(r._mapping) for r in rows]})
+        # Obter próxima ordem
+        ordem_row = execute_query(
+            "SELECT COALESCE(MAX(ordem),0)+1 FROM galeria WHERE noticia_id = %s",
+            (nid,), fetch_one=True
+        )
+        ordem = ordem_row['coalesce'] if ordem_row else 1
+        execute_query(
+            "INSERT INTO galeria (noticia_id, imagem, ordem) VALUES (%s, %s, %s)",
+            (nid, url, ordem), commit=True
+        )
+        galeria = execute_query(
+            "SELECT * FROM galeria WHERE noticia_id = %s ORDER BY ordem",
+            (nid,), fetch_all=True
+        )
+        return jsonify({'url': url, 'galeria': galeria})
     except Exception as e:
         log.error(f"Erro em admin_galeria_add: {e}")
         return jsonify({'erro': 'Erro ao adicionar à galeria'}), 500
@@ -618,11 +583,11 @@ def admin_galeria_add(nid):
 @login_required
 def admin_galeria_get(nid):
     try:
-        rows = execute_db_query(
-            "SELECT * FROM galeria WHERE noticia_id = :id ORDER BY ordem",
-            {'id': nid}, fetch_all=True
+        galeria = execute_query(
+            "SELECT * FROM galeria WHERE noticia_id = %s ORDER BY ordem",
+            (nid,), fetch_all=True
         )
-        return jsonify(rows)
+        return jsonify(galeria)
     except Exception as e:
         log.error(f"Erro em admin_galeria_get: {e}")
         return jsonify({'erro': 'Erro ao listar galeria'}), 500
@@ -631,7 +596,7 @@ def admin_galeria_get(nid):
 @login_required
 def admin_galeria_delete(gid):
     try:
-        execute_db_query("DELETE FROM galeria WHERE id = :id", {'id': gid}, commit=True)
+        execute_query("DELETE FROM galeria WHERE id = %s", (gid,), commit=True)
         return jsonify({'ok': True})
     except Exception as e:
         log.error(f"Erro em admin_galeria_delete: {e}")
@@ -646,22 +611,20 @@ def admin_galeria_add_url():
         url = data.get('url', '').strip()
         if not nid or not url:
             return jsonify({'erro': 'noticia_id e url obrigatórios'}), 400
-        with app.app_context():
-            with db.engine.connect() as conn:
-                ordem = conn.execute(
-                    text("SELECT COALESCE(MAX(ordem),0)+1 FROM galeria WHERE noticia_id = :id"),
-                    {'id': nid}
-                ).fetchone()[0]
-                conn.execute(
-                    text("INSERT INTO galeria (noticia_id, imagem, ordem) VALUES (:id, :imagem, :ordem)"),
-                    {'id': nid, 'imagem': url, 'ordem': ordem}
-                )
-                conn.commit()
-                rows = conn.execute(
-                    text("SELECT * FROM galeria WHERE noticia_id = :id ORDER BY ordem"),
-                    {'id': nid}
-                ).fetchall()
-                return jsonify({'galeria': [dict(r._mapping) for r in rows]})
+        ordem_row = execute_query(
+            "SELECT COALESCE(MAX(ordem),0)+1 FROM galeria WHERE noticia_id = %s",
+            (nid,), fetch_one=True
+        )
+        ordem = ordem_row['coalesce'] if ordem_row else 1
+        execute_query(
+            "INSERT INTO galeria (noticia_id, imagem, ordem) VALUES (%s, %s, %s)",
+            (nid, url, ordem), commit=True
+        )
+        galeria = execute_query(
+            "SELECT * FROM galeria WHERE noticia_id = %s ORDER BY ordem",
+            (nid,), fetch_all=True
+        )
+        return jsonify({'galeria': galeria})
     except Exception as e:
         log.error(f"Erro em admin_galeria_add_url: {e}")
         return jsonify({'erro': 'Erro ao adicionar URL'}), 500
@@ -670,7 +633,7 @@ def admin_galeria_add_url():
 @login_required
 def admin_cats():
     try:
-        rows = execute_db_query("SELECT nome FROM categorias ORDER BY nome", fetch_all=True)
+        rows = execute_query("SELECT nome FROM categorias ORDER BY nome", fetch_all=True)
         return jsonify([r['nome'] for r in rows])
     except Exception as e:
         log.error(f"Erro em admin_cats: {e}")
@@ -684,13 +647,10 @@ def admin_criar_cat():
         nome = data.get('nome', '').strip()
         if not nome:
             return jsonify({'erro': 'Nome obrigatório'}), 400
-        with app.app_context():
-            with db.engine.connect() as conn:
-                try:
-                    conn.execute(text("INSERT INTO categorias (nome) VALUES (:nome)"), {'nome': nome})
-                    conn.commit()
-                except exc.IntegrityError:
-                    return jsonify({'erro': 'Categoria já existe'}), 409
+        try:
+            execute_query("INSERT INTO categorias (nome) VALUES (%s)", (nome,), commit=True)
+        except psycopg2.errors.UniqueViolation:
+            return jsonify({'erro': 'Categoria já existe'}), 409
         return jsonify({'ok': True, 'nome': nome})
     except Exception as e:
         log.error(f"Erro em admin_criar_cat: {e}")
@@ -700,16 +660,13 @@ def admin_criar_cat():
 @login_required
 def admin_apagar_cat(nome):
     try:
-        with app.app_context():
-            with db.engine.connect() as conn:
-                em_uso = conn.execute(
-                    text("SELECT COUNT(*) FROM noticias WHERE categoria = :nome"),
-                    {'nome': nome}
-                ).fetchone()[0]
-                if em_uso:
-                    return jsonify({'erro': f'Em uso por {em_uso} notícia(s)'}), 409
-                conn.execute(text("DELETE FROM categorias WHERE nome = :nome"), {'nome': nome})
-                conn.commit()
+        em_uso = execute_query(
+            "SELECT COUNT(*) FROM noticias WHERE categoria = %s",
+            (nome,), fetch_one=True
+        )
+        if em_uso and em_uso['count'] > 0:
+            return jsonify({'erro': f'Em uso por {em_uso["count"]} notícia(s)'}), 409
+        execute_query("DELETE FROM categorias WHERE nome = %s", (nome,), commit=True)
         return jsonify({'ok': True})
     except Exception as e:
         log.error(f"Erro em admin_apagar_cat: {e}")
@@ -719,24 +676,24 @@ def admin_apagar_cat(nome):
 @login_required
 def admin_stats():
     try:
-        with app.app_context():
-            with db.engine.connect() as conn:
-                total = conn.execute(text("SELECT COUNT(*) FROM noticias")).fetchone()[0]
-                destaques = conn.execute(text("SELECT COUNT(*) FROM noticias WHERE destaque=TRUE")).fetchone()[0]
-                total_cats = conn.execute(text("SELECT COUNT(*) FROM categorias")).fetchone()[0]
-                por_cat = conn.execute(
-                    text("SELECT categoria, COUNT(*) as n FROM noticias GROUP BY categoria ORDER BY n DESC")
-                ).fetchall()
-                recentes = conn.execute(
-                    text("SELECT * FROM noticias ORDER BY criado_em DESC LIMIT 5")
-                ).fetchall()
-                return jsonify({
-                    'total': total,
-                    'destaques': destaques,
-                    'total_categorias': total_cats,
-                    'por_categoria': [dict(r._mapping) for r in por_cat],
-                    'recentes': [dict(r._mapping) for r in recentes]
-                })
+        total = execute_query("SELECT COUNT(*) FROM noticias", fetch_one=True)['count']
+        destaques = execute_query("SELECT COUNT(*) FROM noticias WHERE destaque=TRUE", fetch_one=True)['count']
+        total_cats = execute_query("SELECT COUNT(*) FROM categorias", fetch_one=True)['count']
+        por_cat = execute_query(
+            "SELECT categoria, COUNT(*) as n FROM noticias GROUP BY categoria ORDER BY n DESC",
+            fetch_all=True
+        )
+        recentes = execute_query(
+            "SELECT * FROM noticias ORDER BY criado_em DESC LIMIT 5",
+            fetch_all=True
+        )
+        return jsonify({
+            'total': total,
+            'destaques': destaques,
+            'total_categorias': total_cats,
+            'por_categoria': por_cat,
+            'recentes': recentes
+        })
     except Exception as e:
         log.error(f"Erro em admin_stats: {e}")
         return jsonify({'erro': 'Erro ao buscar estatísticas'}), 500
@@ -746,8 +703,8 @@ def admin_stats():
 @app.route('/health')
 def health():
     try:
-        with app.app_context():
-            db.engine.execute("SELECT 1")
+        conn = get_db(retries=2, delay=1)
+        conn.close()
         return jsonify({'status': 'ok', 'database': 'connected'})
     except Exception as e:
         log.error(f"Health check falhou: {e}")
@@ -759,12 +716,12 @@ if __name__ == '__main__':
     porta = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('DEBUG', 'true').lower() == 'true'
 
-    # Inicializa a base de dados (se falhar, avisa)
-    if not init_db():
-        log.warning("Falha ao inicializar a base de dados. A aplicação pode funcionar com dados locais?")
-        # Criar um ficheiro de fallback vazio se não existir
-        if not os.path.exists(FALLBACK_FILE):
-            save_fallback_noticias([])
+    # Inicializa a base de dados
+    try:
+        init_db()
+    except Exception as e:
+        log.error(f"Falha ao inicializar a base de dados: {e}")
+        log.warning("A aplicação pode não funcionar corretamente.")
 
     log.info(f"Servidor a iniciar na porta {porta}")
     app.run(host='0.0.0.0', port=porta, debug=debug)
