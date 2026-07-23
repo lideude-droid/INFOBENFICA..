@@ -37,7 +37,7 @@ MAX_IMG_MB   = 8
 
 DATABASE_URL = os.environ.get(
     'DATABASE_URL',
-    'postgres://hdb_J-pXdeuD:bfNUZhNs0iHHLpUXDaq1gDUNToMD_k2W@hdb-J-pXdeuD.db.rocketadmin.com:5432/hdb_J-pXdeuD'
+    'postgres://hdb_J-pXdeuD:yYX3_UczXo3fHIDAMiat-YEBZmV2ocBx@hdb-J-pXdeuD.db.rocketadmin.com:5432/hdb_J-pXdeuD'
 )
 
 SECRET_KEY   = os.environ.get('SECRET_KEY', secrets.token_hex(32))
