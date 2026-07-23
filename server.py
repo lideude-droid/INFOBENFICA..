@@ -53,6 +53,12 @@ CORS(app, supports_credentials=True)
 
 ADMIN_PASS_HASH = hashlib.sha256(ADMIN_PASS.encode()).hexdigest()
 
+if not DATABASE_URL:
+    log.error(
+        "DATABASE_URL não está definida! Define a variável de ambiente "
+        "DATABASE_URL com a connection string da Rocketadmin (postgres://...)."
+    )
+
 # ─── Base de dados ────────────────────────────────────────────────────────────
 
 def get_db(retries=3, delay=2):
@@ -711,17 +717,21 @@ def health():
         return jsonify({'status': 'error', 'database': 'disconnected', 'detail': str(e)}), 500
 
 # ─── Inicialização ────────────────────────────────────────────────────────────
+# Corre SEMPRE que o módulo é carregado (quer seja com "python server.py" em
+# desenvolvimento, quer seja com "gunicorn server:app" em produção, como no
+# render.yaml). Antes, isto só corria dentro do "if __name__ == '__main__'",
+# pelo que em produção (gunicorn) as tabelas nunca chegavam a ser criadas na
+# Rocketadmin. Liga-se sempre à Rocketadmin via DATABASE_URL — nunca a um
+# ficheiro local.
+try:
+    init_db()
+except Exception as e:
+    log.error(f"Falha ao inicializar a base de dados na Rocketadmin: {e}")
+    log.warning("A aplicação pode não funcionar corretamente até a ligação à base de dados ser restabelecida.")
 
 if __name__ == '__main__':
     porta = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('DEBUG', 'true').lower() == 'true'
-
-    # Inicializa a base de dados
-    try:
-        init_db()
-    except Exception as e:
-        log.error(f"Falha ao inicializar a base de dados: {e}")
-        log.warning("A aplicação pode não funcionar corretamente.")
 
     log.info(f"Servidor a iniciar na porta {porta}")
     app.run(host='0.0.0.0', port=porta, debug=debug)

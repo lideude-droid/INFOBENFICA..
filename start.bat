@@ -8,7 +8,6 @@ echo   A instalar dependencias...
 pip install -r requirements.txt -q
 
 echo   A criar pastas...
-if not exist "data" mkdir data
 if not exist "public\assets\images" mkdir public\assets\images
 
 echo.

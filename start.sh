@@ -19,8 +19,8 @@ fi
 echo "  → A instalar dependências..."
 pip3 install -r requirements.txt -q
 
-# Criar pastas necessárias
-mkdir -p data public/assets/images
+# Criar pastas necessárias (os dados ficam na Rocketadmin, não em ficheiro local)
+mkdir -p public/assets/images
 
 # Arrancar servidor
 echo "  → A iniciar servidor..."
