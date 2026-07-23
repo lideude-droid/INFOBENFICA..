@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Administração — Encarnado</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23c8102e'/><text x='16' y='22' text-anchor='middle' font-size='18' font-family='Georgia' font-weight='bold' fill='white'>E</text></svg>">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+
+<!-- ══════════════ LOGIN ══════════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-brand">
+      <div class="login-badge"><svg viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg></div>
+      <div><div class="login-name">Encarnado</div><div class="login-sub">Administração</div></div>
+    </div>
+    <h1 class="login-title">Iniciar sessão</h1>
+    <form id="login-form" autocomplete="off">
+      <div class="f-group"><label for="l-user">Utilizador</label><input type="text" id="l-user" placeholder="Nome de utilizador" required autocomplete="username"></div>
+      <div class="f-group"><label for="l-pass">Palavra-passe</label><input type="password" id="l-pass" placeholder="Palavra-passe" required autocomplete="current-password"></div>
+      <p class="login-err" id="l-err">Credenciais incorretas. Tente novamente.</p>
+      <button type="submit" class="btn-login">Entrar no painel</button>
+    </form>
+  </div>
+</div>
+
+<!-- ══════════════ PAINEL ══════════════ -->
+<div id="admin-screen">
+
+  <!-- Sidebar -->
+  <aside class="a-sidebar" id="a-sidebar">
+    <a href="/" target="_blank" class="a-sidebar-brand">
+      <div class="a-brand-badge"><svg viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg></div>
+      <div><div class="a-brand-name">Encarnado</div><div class="a-brand-link">Ver o site →</div></div>
+    </a>
+
+    <nav class="a-nav" aria-label="Menu de administração">
+      <div class="a-nav-section">
+        <div class="a-nav-label">Principal</div>
+        <button class="nav-btn active" data-sec="dashboard" onclick="showSection('dashboard')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Dashboard
+        </button>
+        <button class="nav-btn" data-sec="noticias" onclick="showSection('noticias')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Notícias
+        </button>
+        <button class="nav-btn" data-sec="form" onclick="openForm()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          Nova Notícia
+        </button>
+      </div>
+      <div class="a-nav-section">
+        <div class="a-nav-label">Configuração</div>
+        <button class="nav-btn" data-sec="categorias" onclick="showSection('categorias')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+          Categorias
+        </button>
+      </div>
+    </nav>
+
+    <div class="a-sidebar-bottom">
+      <button class="btn-logout" onclick="doLogout()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Terminar sessão
+      </button>
+    </div>
+  </aside>
+
+  <!-- Conteúdo -->
+  <div class="a-content">
+
+    <div class="a-topbar">
+      <span class="a-topbar__title" id="topbar-title">Dashboard</span>
+      <div class="a-topbar__actions">
+        <button class="a-btn a-btn-primary a-btn-sm" onclick="openForm()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Nova Notícia
+        </button>
+      </div>
+    </div>
+
+    <div class="a-main">
+
+      <!-- ══ DASHBOARD ══ -->
+      <div class="a-section" id="sec-dashboard">
+        <div class="stats-grid" id="stats-grid">
+          <div class="a-stat"><div class="a-stat__label">Total</div><div class="a-stat__val skeleton" style="height:36px;width:60px;"></div></div>
+          <div class="a-stat"><div class="a-stat__label">Destaque</div><div class="a-stat__val skeleton" style="height:36px;width:40px;"></div></div>
+          <div class="a-stat"><div class="a-stat__label">Categorias</div><div class="a-stat__val skeleton" style="height:36px;width:40px;"></div></div>
+          <div class="a-stat"><div class="a-stat__label">Mais activa</div><div class="a-stat__val skeleton" style="height:36px;width:80px;"></div></div>
+        </div>
+
+        <div class="a-card">
+          <div class="a-card-head">
+            <span class="a-card-head__title">Últimas publicações</span>
+            <button class="a-btn a-btn-secondary a-btn-sm" onclick="showSection('noticias')">Ver todas</button>
+          </div>
+          <div class="table-wrap">
+            <table class="a-table">
+              <thead><tr><th>Título</th><th>Categoria</th><th>Autor</th><th>Data</th><th>Estado</th></tr></thead>
+              <tbody id="recent-tbody"><tr><td colspan="5" class="empty-td">A carregar…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ LISTA NOTÍCIAS ══ -->
+      <div class="a-section" id="sec-noticias" style="display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;">
+          <input type="search" placeholder="Pesquisar notícias…"
+            oninput="onSearchList(this.value)"
+            style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--r);font-size:13px;width:280px;outline:none;font-family:var(--font);">
+          <button class="a-btn a-btn-primary a-btn-sm" onclick="openForm()">+ Nova Notícia</button>
+        </div>
+        <div class="a-card">
+          <div class="a-card-head">
+            <span class="a-card-head__title">Todas as notícias</span>
+          </div>
+          <div class="table-wrap">
+            <table class="a-table">
+              <thead><tr><th>Título</th><th>Categoria</th><th>Autor</th><th>Data</th><th>Estado</th><th>Ações</th></tr></thead>
+              <tbody id="noticias-tbody"><tr><td colspan="6" class="empty-td">A carregar…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ FORMULÁRIO ══ -->
+      <div class="a-section" id="sec-form" style="display:none;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px;">
+          <button class="a-btn a-btn-secondary a-btn-sm" onclick="showSection('noticias')">← Voltar</button>
+          <h2 style="font-size:15px;font-weight:600;" id="form-title">Nova Notícia</h2>
+        </div>
+
+        <div class="a-card" style="padding:24px;">
+          <div class="form-grid">
+
+            <!-- Título -->
+            <div class="f-group span2">
+              <label for="f-titulo">Título *</label>
+              <input type="text" id="f-titulo" placeholder="Título da notícia" required>
+            </div>
+
+            <!-- Subtítulo -->
+            <div class="f-group span2">
+              <label for="f-subtitulo">Subtítulo / Resumo</label>
+              <input type="text" id="f-subtitulo" placeholder="Breve descrição">
+            </div>
+
+            <!-- Autor -->
+            <div class="f-group">
+              <label for="f-autor">Autor *</label>
+              <input type="text" id="f-autor" placeholder="Nome do autor" required>
+            </div>
+
+            <!-- Data -->
+            <div class="f-group">
+              <label for="f-data">Data *</label>
+              <input type="date" id="f-data" required>
+            </div>
+
+            <!-- Categoria -->
+            <div class="f-group">
+              <label for="f-categoria">Categoria *</label>
+              <select id="f-categoria"></select>
+            </div>
+
+            <!-- Destaque -->
+            <div class="f-group" style="display:flex;align-items:flex-end;padding-bottom:2px;">
+              <div class="toggle-row">
+                <input type="checkbox" id="f-destaque">
+                <label for="f-destaque" class="toggle-label">
+                  <div class="toggle-track"></div>
+                  Colocar em destaque
+                </label>
+              </div>
+            </div>
+
+            <!-- Upload imagem -->
+            <div class="f-group span2">
+              <label>Imagem principal</label>
+              <div class="upload-zone" id="upload-area">
+                <div class="u-icon">📷</div>
+                <div class="u-text">Clique ou arraste uma imagem</div>
+                <div class="u-hint">JPG, PNG, WebP — máx. 8MB</div>
+                <input type="file" id="upload-input" accept="image/*" style="display:none;">
+              </div>
+              <div id="upload-preview"></div>
+              <div style="margin-top:9px;">
+                <label style="font-size:11px;color:var(--gray-m);font-weight:600;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:4px;">Ou URL da imagem</label>
+                <input type="url" id="f-img-url" placeholder="https://exemplo.com/imagem.jpg"
+                  style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--r);font-size:13px;outline:none;font-family:var(--font);"
+                  oninput="previewURL(this.value)">
+              </div>
+            </div>
+
+            <!-- Editor -->
+            <div class="f-group span2">
+              <label>Conteúdo *</label>
+              <div class="editor-bar">
+                <button type="button" class="e-btn" onclick="Editor.cmd('bold')" title="Negrito"><b>N</b></button>
+                <button type="button" class="e-btn" onclick="Editor.cmd('italic')" title="Itálico"><i>I</i></button>
+                <button type="button" class="e-btn" onclick="Editor.cmd('underline')" title="Sub"><u>S</u></button>
+                <span class="e-sep">|</span>
+                <button type="button" class="e-btn" onclick="Editor.cmd('formatBlock','h2')" title="H2">H2</button>
+                <button type="button" class="e-btn" onclick="Editor.cmd('formatBlock','h3')" title="H3">H3</button>
+                <button type="button" class="e-btn" onclick="Editor.cmd('formatBlock','p')"  title="Parágrafo">P</button>
+                <span class="e-sep">|</span>
+                <button type="button" class="e-btn" onclick="Editor.cmd('insertUnorderedList')" title="Lista">• Lista</button>
+                <button type="button" class="e-btn" onclick="Editor.cmd('formatBlock','blockquote')" title="Citação">❝</button>
+                <span class="e-sep">|</span>
+                <button type="button" class="e-btn" onclick="Editor.link()" title="Link">🔗</button>
+                <button type="button" class="e-btn" onclick="Editor.cmd('removeFormat')" title="Limpar">✕</button>
+              </div>
+              <div id="f-conteudo" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Conteúdo"></div>
+            </div>
+
+
+            <!-- Galeria múltipla -->
+            <div class="f-group span2">
+              <label>Galeria de imagens<span id="galeria-count" style="color:var(--red);font-weight:700"></span></label>
+
+              <!-- Grid de imagens adicionadas -->
+              <div id="galeria-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;min-height:40px;">
+                <p style="font-size:12px;color:var(--gray-m);padding:8px 0;grid-column:1/-1">Sem imagens na galeria. Adicione abaixo.</p>
+              </div>
+
+              <!-- Zona de upload múltiplo -->
+              <div class="upload-zone" id="galeria-zone" style="padding:18px;margin-bottom:10px;">
+                <div class="u-icon" style="font-size:22px;">🖼️</div>
+                <div class="u-text">Clique ou arraste imagens para a galeria</div>
+                <div class="u-hint">Pode selecionar várias imagens de uma vez</div>
+                <input type="file" id="galeria-input" accept="image/*" multiple style="display:none;">
+              </div>
+
+              <!-- Adicionar por URL -->
+              <div style="display:flex;gap:8px;align-items:center;">
+                <input type="url" id="galeria-url-input" placeholder="Ou cole o URL de uma imagem…"
+                  style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--r);font-size:13px;outline:none;font-family:var(--font);">
+                <button type="button" class="a-btn a-btn-secondary a-btn-sm"
+                  onclick="Galeria.addURL(document.getElementById('galeria-url-input').value)">
+                  Adicionar
+                </button>
+              </div>
+            </div>
+
+            <!-- Ações -->
+            <div class="form-actions">
+              <button type="button" class="a-btn a-btn-primary" onclick="saveNoticia(false)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                Publicar
+              </button>
+              <button type="button" class="a-btn a-btn-secondary" onclick="saveNoticia(true)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                Pré-visualizar
+              </button>
+              <button type="button" class="a-btn a-btn-ghost" onclick="showSection('noticias')">Cancelar</button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ CATEGORIAS ══ -->
+      <div class="a-section" id="sec-categorias" style="display:none;">
+        <div class="cat-layout">
+
+          <div class="a-card">
+            <div class="a-card-head"><span class="a-card-head__title">Categorias existentes</span></div>
+            <div id="cat-list"><div style="padding:40px;text-align:center;color:var(--gray-m);font-size:13px;">A carregar…</div></div>
+          </div>
+
+          <div class="a-card" style="padding:20px;">
+            <h3 style="font-size:13px;font-weight:600;margin-bottom:14px;">Adicionar categoria</h3>
+            <div class="f-group">
+              <label for="new-cat">Nome</label>
+              <input type="text" id="new-cat" placeholder="Ex: Entrevistas"
+                onkeydown="if(event.key==='Enter') addCategoria()">
+            </div>
+            <button class="a-btn a-btn-primary" style="width:100%" onclick="addCategoria()">Adicionar</button>
+            <p style="margin-top:10px;font-size:11px;color:var(--gray-m);line-height:1.6;">Só é possível remover categorias sem notícias associadas.</p>
+          </div>
+
+        </div>
+      </div>
+
+    </div><!-- /a-main -->
+  </div><!-- /a-content -->
+</div><!-- /admin-screen -->
+
+<!-- ══ PRÉ-VISUALIZAÇÃO ══ -->
+<div class="preview-overlay" id="preview-overlay">
+  <div class="preview-box">
+    <div class="preview-head">
+      <h3>Pré-visualização</h3>
+      <div style="display:flex;gap:8px;">
+        <button class="a-btn a-btn-primary a-btn-sm" onclick="saveNoticia(false);closePreview()">Publicar agora</button>
+        <button class="a-btn a-btn-secondary a-btn-sm" onclick="closePreview()">Fechar</button>
+      </div>
+    </div>
+    <div id="preview-body"></div>
+  </div>
+</div>
+
+<!-- ══ MODAL APAGAR ══ -->
+<div class="modal-overlay" id="modal-delete">
+  <div class="modal-box">
+    <div style="font-size:38px;margin-bottom:10px;">🗑️</div>
+    <h3>Apagar notícia?</h3>
+    <p>Esta ação é irreversível. A notícia será permanentemente removida da base de dados.</p>
+    <div class="modal-actions">
+      <button class="a-btn a-btn-danger" onclick="doDelete()">Sim, apagar</button>
+      <button class="a-btn a-btn-secondary" onclick="closeModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/admin.js"></script>
+<script>
+function previewURL(url) {
+  if (!url) return;
+  Upload.previewURL(url);
+}
+</script>
+</body>
+</html>
